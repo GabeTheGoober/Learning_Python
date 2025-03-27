@@ -13,3 +13,7 @@ d = {'key':['a', 'b', 'c']}
 mylist = d['key'][2].upper()
 letter = mylist
 print (letter)
+
+print (w.values())
+print (d.keys())
+print (w.keys())
