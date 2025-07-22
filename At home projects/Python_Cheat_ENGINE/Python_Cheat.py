@@ -198,6 +198,8 @@ class MemoryEditor(QMainWindow):
         # =====[ Process List ]=====
         self.process_list = QListWidget()
         self.process_list.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        # Connect selection change to enable select button
+        self.process_list.itemSelectionChanged.connect(self.enable_select_button)
         panel_layout.addWidget(self.process_list)
         
         # =====[ Button Row ]=====
@@ -374,6 +376,12 @@ class MemoryEditor(QMainWindow):
         # Update status and UI
         self.update_status(f"Found {len(processes)} processes")
         self.select_btn.setEnabled(False)  # Disable until new selection
+    
+    # ADD THIS METHOD: Enable select button when a process is selected
+    def enable_select_button(self):
+        """Enable the select button when a process is selected"""
+        selected_items = self.process_list.selectedItems()
+        self.select_btn.setEnabled(bool(selected_items))
     
     def select_process(self):
         """Select the highlighted process for memory editing"""
