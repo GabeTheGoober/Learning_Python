@@ -34,7 +34,7 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(self.stacked_widget)
 
         # ||||[ Create Scene Instances with Backgrounds ]||||
-        self.main_menu = MainMenu(self, QColor(30, 30, 30))                  # Dark gray
+        self.main_menu = MainMenu(self, QColor(0, 0, 0))                      # Black
         self.process_scanner = ProcessScanner(self, QColor(0, 20, 40))        # Dark blue
         self.memory_editor = MemoryEditor(self, QColor(20, 40, 20))           # Dark green
 
@@ -87,54 +87,55 @@ class MainMenu(SceneWidget):
         # ||||[ Set background color ]||||
         self.set_background()
 
-        # |||||[ Container for menu content ]|||||
+        # |||||[ Container outline for menu content ]|||||
         content_widget = QWidget(self)
         content_widget.setStyleSheet("""
             background-color: rgba(40, 40, 40, 220); 
             border-radius: 15px;
-            border: 2px solid #4CAF50;
-        """)
+            border: 2px solid #00fb09; /* Bright green */
+        """) # Green
         content_widget.setGeometry(100, 100, 700, 450)
 
         # ||||[ Title ]||||
-        title = QLabel('Memory Editor', content_widget)
+        title = QLabel("G's Python Cheat Engine", content_widget)
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         title.setStyleSheet('''
             font-size: 36px; 
             font-weight: bold; 
-            color: #4CAF50;
+            color: #00fb09;  /* Bright green */
             background-color: transparent;
         ''')
-        title.setFont(QFont("Arial", 24, QFont.Weight.Bold))
+        title.setFont(QFont("Courier New", 24, QFont.Weight.Bold))
 
         # ||||[ Description ]||||
-        description = QLabel('A Python-based memory scanner and editor\nfor educational purposes only', content_widget)
+        description = QLabel('This is a Python-based memory scanner and editor,\nI am not responsible for any misuse. Have fun ;)', content_widget)
         description.setAlignment(Qt.AlignmentFlag.AlignCenter)
         description.setStyleSheet('''
             font-size: 16px; 
-            color: #E0E0E0;
+            color: #FFFFFF; /* White */
             background-color: transparent;
             margin: 15px;
-        ''')
+        ''') # White
+        description.setFont(QFont("Georgia", 14, QFont.Weight.Normal))
 
         # ||||[ Process Scanner Button ]||||
         scanner_btn = QPushButton('Process Scanner', content_widget)
         scanner_btn.setStyleSheet('''
             QPushButton {
-                background-color: #4CAF50;
+                background-color: #4CAF50; /* Green */
                 color: white;
                 font-weight: bold;
                 font-size: 18px;
                 border-radius: 10px;
                 padding: 15px;
-                border: 2px solid #388E3C;
+                border: 2px solid #2E7D32; /* Very Dark Green */
                 min-width: 250px;
             }
             QPushButton:hover {
-                background-color: #45a049;
+                background-color: #45a045; /* Lighter Green */
             }
             QPushButton:disabled {
-                background-color: #2E7D32;
+                background-color: #2E7D32; /* Dark Green */
                 color: #AAAAAA;
             }
         ''')
@@ -144,20 +145,20 @@ class MainMenu(SceneWidget):
         editor_btn = QPushButton('Memory Editor', content_widget)
         editor_btn.setStyleSheet('''
             QPushButton {
-                background-color: #2196F3;
+                background-color: #2196F3; /* Blue */
                 color: white;
                 font-weight: bold;
                 font-size: 18px;
                 border-radius: 10px;
                 padding: 15px;
-                border: 2px solid #0D47A1;
+                border: 2px solid #0D47A1; /* Darker Blue */
                 min-width: 250px;
             }
             QPushButton:hover {
-                background-color: #0b7dda;
+                background-color: #0b7dda; /* Lighter Blue */
             }
             QPushButton:disabled {
-                background-color: #1565C0;
+                background-color: #1565C0; /* Dark Blue */
                 color: #AAAAAA;
             }
         ''')
@@ -169,7 +170,7 @@ class MainMenu(SceneWidget):
         status.setAlignment(Qt.AlignmentFlag.AlignCenter)
         status.setStyleSheet('''
             font-size: 14px; 
-            color: #FF9800;
+            color: #FFA500; /* Orange */
             background-color: transparent;
             margin-top: 20px;
         ''')
@@ -215,7 +216,7 @@ class ProcessScanner(SceneWidget):
         content_widget.setStyleSheet("""
             background-color: rgba(10, 30, 50, 220); 
             border-radius: 15px;
-            border: 2px solid #2196F3;
+            border: 2px solid #2196F3; /* Blue */
         """)
         content_widget.setGeometry(50, 30, 800, 590)
 
@@ -223,15 +224,15 @@ class ProcessScanner(SceneWidget):
         back_btn = QPushButton("← Back to Menu", content_widget)
         back_btn.setStyleSheet('''
             QPushButton {
-                background-color: #9C27B0;
+                background-color: #9C27B0; /* Purple */
                 color: white;
                 font-weight: bold;
                 border-radius: 5px;
                 padding: 8px;
-                border: 1px solid #7B1FA2;
+                border: 1px solid #7B1FA2; /* Darker Purple */ 
             }
             QPushButton:hover {
-                background-color: #7B1FA2;
+                background-color: #7B1FA2; /* Lighter Purple */
             }
         ''')
         back_btn.clicked.connect(lambda: self.parent.switch_to_scene("main_menu"))
@@ -241,7 +242,7 @@ class ProcessScanner(SceneWidget):
         title.setStyleSheet('''
             font-size: 28px; 
             font-weight: bold; 
-            color: #FF9800;
+            color: #FF9800; /* Orange */
             background-color: transparent;
         ''')
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -252,13 +253,13 @@ class ProcessScanner(SceneWidget):
         self.process_list.setStyleSheet('''
             QListWidget {
                 background-color: rgba(20, 40, 60, 200);
-                color: #E0E0E0;
-                border: 1px solid #0D47A1;
+                color: #E0E0E0; /* Light gray */
+                border: 1px solid #0D47A1; /* Darker blue */
                 border-radius: 5px;
                 font-size: 14px;
             }
             QListWidget::item:selected {
-                background-color: #1976D2;
+                background-color: #1976D2; /* Blue */
                 color: white;
             }
         ''')
@@ -268,15 +269,15 @@ class ProcessScanner(SceneWidget):
         refresh_btn = QPushButton('⟳ Refresh List', content_widget)
         refresh_btn.setStyleSheet('''
             QPushButton {
-                background-color: #FF9800;
+                background-color: #FF9800; /* Orange */
                 color: black;
                 font-weight: bold;
                 border-radius: 5px;
                 padding: 8px;
-                border: 1px solid #F57C00;
+                border: 1px solid #F57C00; /* Darker Orange */
             }
             QPushButton:hover {
-                background-color: #F57C00;
+                background-color: #F57C00; /* Lighter Orange */
             }
         ''')
         refresh_btn.clicked.connect(self.refresh_process_list)
@@ -285,15 +286,15 @@ class ProcessScanner(SceneWidget):
         select_btn = QPushButton('Select Process', content_widget)
         select_btn.setStyleSheet('''
             QPushButton {
-                background-color: #4CAF50;
+                background-color: #4CAF50; /* Green */
                 color: white;
                 font-weight: bold;
                 border-radius: 5px;
                 padding: 8px 20px;
-                border: 1px solid #388E3C;
+                border: 1px solid #388E3C; /* Darker Green */
             }
             QPushButton:hover {
-                background-color: #45a049;
+                background-color: #45a049; /* Lighter Green */
             }
         ''')
         select_btn.clicked.connect(self.select_process)
@@ -307,7 +308,7 @@ class ProcessScanner(SceneWidget):
         self.status_msg = QLabel("", content_widget)
         self.status_msg.setStyleSheet('''
             font-size: 14px; 
-            color: #FFEB3B;
+            color: #FFEB3B; /* Yellow */
             background-color: transparent;
             padding: 5px;
         ''')
@@ -386,7 +387,7 @@ class ProcessScanner(SceneWidget):
         selected_items = self.process_list.selectedItems()
         if not selected_items:
             self.status_msg.setText("Please select a process first")
-            self.status_msg.setStyleSheet('color: #F44336;')
+            self.status_msg.setStyleSheet('color: #F44336;')  # Red
             return
             
         selected_item = selected_items[0]
@@ -403,20 +404,20 @@ class ProcessScanner(SceneWidget):
             self.parent.selected_process_name = name
             
             self.status_msg.setText(f"Selected: {name} (PID: {pid})")
-            self.status_msg.setStyleSheet('color: #4CAF50;')
+            self.status_msg.setStyleSheet('color: #4CAF50;') # Green
             
             # Switch back to main menu after a delay
             QTimer.singleShot(1500, lambda: self.parent.switch_to_scene("main_menu"))
             
         except pymem.exception.ProcessNotFound:
             self.status_msg.setText(f"Process not found: {name}")
-            self.status_msg.setStyleSheet('color: #F44336;')
+            self.status_msg.setStyleSheet('color: #F44336;')  # Red
         except pymem.exception.CouldNotOpenProcess:
             self.status_msg.setText(f"Access denied: {name}")
-            self.status_msg.setStyleSheet('color: #F44336;')
+            self.status_msg.setStyleSheet('color: #F44336;')  # Red
         except Exception as e:
             self.status_msg.setText(f"Error: {str(e)}")
-            self.status_msg.setStyleSheet('color: #F44336;')
+            self.status_msg.setStyleSheet('color: #F44336;')  # Red 
 
 
 # ===========================[ Memory Editor Scene ]===========================
@@ -434,7 +435,7 @@ class MemoryEditor(SceneWidget):
         content_widget.setStyleSheet("""
             background-color: rgba(20, 50, 30, 220); 
             border-radius: 15px;
-            border: 2px solid #4CAF50;
+            border: 2px solid #4CAF50; /* Green */
         """)
         content_widget.setGeometry(50, 30, 800, 590)
 
@@ -442,12 +443,12 @@ class MemoryEditor(SceneWidget):
         back_btn = QPushButton("← Back to Menu", content_widget)
         back_btn.setStyleSheet('''
             QPushButton {
-                background-color: #9C27B0;
+                background-color: #9C27B0; /* Purple */
                 color: white;
                 font-weight: bold;
                 border-radius: 5px;
                 padding: 8px;
-                border: 1px solid #7B1FA2;
+                border: 1px solid #7B1FA2; /* Darker Purple */
             }
             QPushButton:hover {
                 background-color: #7B1FA2;
@@ -460,7 +461,7 @@ class MemoryEditor(SceneWidget):
         title.setStyleSheet('''
             font-size: 28px; 
             font-weight: bold; 
-            color: #4CAF50;
+            color: #4CAF50; /* Green */
             background-color: transparent;
         ''')
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -471,7 +472,7 @@ class MemoryEditor(SceneWidget):
         self.process_info = QLabel(process_info, content_widget)
         self.process_info.setStyleSheet('''
             font-size: 16px; 
-            color: #FF9800;
+            color: #FF9800; /* Amber */
             background-color: transparent;
         ''')
         self.process_info.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -480,7 +481,7 @@ class MemoryEditor(SceneWidget):
         value_layout = QHBoxLayout()
         
         value_label = QLabel("Value:")
-        value_label.setStyleSheet('color: #E0E0E0; font-size: 16px;')
+        value_label.setStyleSheet('color: #E0E0E0; font-size: 16px;') # Light gray
         
         self.value_input = QLineEdit()
         self.value_input.setPlaceholderText("Enter value to scan for...")
@@ -488,7 +489,7 @@ class MemoryEditor(SceneWidget):
             QLineEdit {
                 background-color: rgba(30, 60, 40, 200);
                 color: white;
-                border: 1px solid #2E7D32;
+                border: 1px solid #2E7D32; /* Dark green */
                 border-radius: 4px;
                 padding: 6px;
                 font-size: 14px;
@@ -503,7 +504,7 @@ class MemoryEditor(SceneWidget):
             QComboBox {
                 background-color: rgba(30, 60, 40, 200);
                 color: white;
-                border: 1px solid #2E7D32;
+                border: 1px solid #2E7D32; /* Dark green */
                 border-radius: 4px;
                 padding: 6px;
                 font-size: 14px;
@@ -520,18 +521,18 @@ class MemoryEditor(SceneWidget):
         self.scan_btn = QPushButton('First Scan')
         self.scan_btn.setStyleSheet('''
             QPushButton {
-                background-color: #2196F3;
+                background-color: #2196F3; /* Blue */
                 color: white;
                 font-weight: bold;
                 border-radius: 5px;
                 padding: 8px 15px;
-                border: 1px solid #0D47A1;
+                border: 1px solid #0D47A1; /* Darker Blue */
             }
             QPushButton:hover {
-                background-color: #0b7dda;
+                background-color: #0b7dda;  /* Lighter Blue */
             }
             QPushButton:disabled {
-                background-color: #1565C0;
+                background-color: #1565C0; /* Dark Blue */
                 color: #AAAAAA;
             }
         ''')
@@ -540,18 +541,18 @@ class MemoryEditor(SceneWidget):
         self.next_scan_btn = QPushButton('Next Scan')
         self.next_scan_btn.setStyleSheet('''
             QPushButton {
-                background-color: #4CAF50;
+                background-color: #4CAF50; /* Green */
                 color: white;
                 font-weight: bold;
                 border-radius: 5px;
                 padding: 8px 15px;
-                border: 1px solid #388E3C;
+                border: 1px solid #388E3C; /* Darker Green */
             }
             QPushButton:hover {
-                background-color: #45a049;
+                background-color: #45a049; /* Lighter Green */
             }
             QPushButton:disabled {
-                background-color: #2E7D32;
+                background-color: #2E7D32; /* Dark Green */
                 color: #AAAAAA;
             }
         ''')
@@ -561,18 +562,18 @@ class MemoryEditor(SceneWidget):
         self.modify_btn = QPushButton('Modify Selected')
         self.modify_btn.setStyleSheet('''
             QPushButton {
-                background-color: #FF9800;
+                background-color: #FF9800; /* Orange */
                 color: black;
                 font-weight: bold;
                 border-radius: 5px;
                 padding: 8px 15px;
-                border: 1px solid #F57C00;
+                border: 1px solid #F57C00; /* Darker Orange */
             }
             QPushButton:hover {
-                background-color: #F57C00;
+                background-color: #F57C00; /* Darker Orange */
             }
             QPushButton:disabled {
-                background-color: #FF8F00;
+                background-color: #FF8F00; /* Lighter Orange */
                 color: #666666;
             }
         ''')
@@ -589,12 +590,12 @@ class MemoryEditor(SceneWidget):
             QListWidget {
                 background-color: rgba(30, 60, 40, 200);
                 color: #E0E0E0;
-                border: 1px solid #2E7D32;
+                border: 1px solid #2E7D32; /* Dark Green */
                 border-radius: 5px;
                 font-size: 14px;
             }
             QListWidget::item:selected {
-                background-color: #388E3C;
+                background-color: #388E3C; /* Selected Green */
                 color: white;
             }
         ''')
@@ -605,7 +606,7 @@ class MemoryEditor(SceneWidget):
         new_value_layout = QHBoxLayout()
         
         new_value_label = QLabel("New Value:")
-        new_value_label.setStyleSheet('color: #E0E0E0; font-size: 16px;')
+        new_value_label.setStyleSheet('color: #E0E0E0; font-size: 16px;') # Light gray
         
         self.new_value_input = QLineEdit()
         self.new_value_input.setPlaceholderText("Enter new value...")
@@ -613,7 +614,7 @@ class MemoryEditor(SceneWidget):
             QLineEdit {
                 background-color: rgba(30, 60, 40, 200);
                 color: white;
-                border: 1px solid #2E7D32;
+                border: 1px solid #2E7D32; /* Dark Green */
                 border-radius: 4px;
                 padding: 6px;
                 font-size: 14px;
@@ -628,7 +629,7 @@ class MemoryEditor(SceneWidget):
         self.status_msg = QLabel("Ready to scan")
         self.status_msg.setStyleSheet('''
             font-size: 14px; 
-            color: #FFEB3B;
+            color: #FFEB3B; /* Yellow */
             background-color: transparent;
             padding: 5px;
         ''')
@@ -656,10 +657,10 @@ class MemoryEditor(SceneWidget):
             self.pm = pymem.Pymem()
             self.pm.open_process_from_id(self.parent.selected_process)
             self.status_msg.setText("Process opened successfully")
-            self.status_msg.setStyleSheet('color: #4CAF50;')
+            self.status_msg.setStyleSheet('color: #4CAF50;') # Light Green
         except Exception as e:
             self.status_msg.setText(f"Error: {str(e)}")
-            self.status_msg.setStyleSheet('color: #F44336;')
+            self.status_msg.setStyleSheet('color: #F44336;') # Red
             self.scan_btn.setEnabled(False)
             self.next_scan_btn.setEnabled(False)
 
@@ -667,7 +668,7 @@ class MemoryEditor(SceneWidget):
         """Perform initial scan for the specified value"""
         if not self.value_input.text():
             self.status_msg.setText("Please enter a value to scan for")
-            self.status_msg.setStyleSheet('color: #F44336;')
+            self.status_msg.setStyleSheet('color: #F44336;') # Red
             return
             
         try:
@@ -726,13 +727,13 @@ class MemoryEditor(SceneWidget):
             
         except Exception as e:
             self.status_msg.setText(f"Scan error: {str(e)}")
-            self.status_msg.setStyleSheet('color: #F44336;')
+            self.status_msg.setStyleSheet('color: #F44336;') # Red
 
     def next_scan(self):
         """Narrow down results with a new value"""
         if not self.value_input.text():
             self.status_msg.setText("Please enter a new value to scan for")
-            self.status_msg.setStyleSheet('color: #F44336;')
+            self.status_msg.setStyleSheet('color: #F44336;') # Red
             return
             
         try:
@@ -772,7 +773,7 @@ class MemoryEditor(SceneWidget):
             
         except Exception as e:
             self.status_msg.setText(f"Scan error: {str(e)}")
-            self.status_msg.setStyleSheet('color: #F44336;')
+            self.status_msg.setStyleSheet('color: #F44336;') # Red
 
     def enable_modify_button(self):
         """Enable modify button when an item is selected"""
@@ -786,7 +787,7 @@ class MemoryEditor(SceneWidget):
             
         if not self.new_value_input.text():
             self.status_msg.setText("Please enter a new value")
-            self.status_msg.setStyleSheet('color: #F44336;')
+            self.status_msg.setStyleSheet('color: #F44336;') # Red
             return
             
         try:
@@ -811,8 +812,8 @@ class MemoryEditor(SceneWidget):
                 current_value = self.pm.read_float(addr)
             
             self.status_msg.setText(f"Changed value at 0x{addr:08X} to {current_value}")
-            self.status_msg.setStyleSheet('color: #4CAF50;')
-            
+            self.status_msg.setStyleSheet('color: #4CAF50;') # Light Green
+
             # Update the list item
             if data_type == "int":
                 selected_items[0].setText(f"0x{addr:08X} - {current_value}")
@@ -821,7 +822,7 @@ class MemoryEditor(SceneWidget):
                 
         except Exception as e:
             self.status_msg.setText(f"Modify error: {str(e)}")
-            self.status_msg.setStyleSheet('color: #F44336;')
+            self.status_msg.setStyleSheet('color: #F44336;') # Red
 
 
 # ===========================[ App Entry Point ]===========================
