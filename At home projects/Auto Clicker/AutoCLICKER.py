@@ -1,9 +1,3 @@
-# Auto Clicker Application
-# This application allows users to automate mouse clicks with customizable settings.
-# It features a system tray icon, keyboard shortcuts, and a settings dialog.
-
-
-
 import sys
 import time
 import threading
@@ -11,17 +5,48 @@ import keyboard
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QSystemTrayIcon, QMenu, QDialog,
     QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
-    QSpinBox, QComboBox, QCheckBox, QGroupBox, QMessageBox, QWidget
+    QSpinBox, QComboBox, QCheckBox, QGroupBox, QMessageBox, QStyle, QWidget
 )
-from PyQt6.QtGui import QIcon, QAction
+from PyQt6.QtGui import QIcon, QAction, QPixmap, QPainter, QColor
 from PyQt6.QtCore import QTimer, Qt
 import pyautogui
+
+# Create a default application icon
+def create_default_icon():
+    """Create a default application icon programmatically"""
+    pixmap = QPixmap(64, 64)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    
+    # Draw circle
+    painter.setBrush(QColor(70, 130, 180))  # Steel blue
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.drawEllipse(4, 4, 56, 56)
+    
+    # Draw mouse icon
+    painter.setBrush(Qt.GlobalColor.white)
+    painter.drawEllipse(20, 15, 24, 35)  # Mouse body
+    
+    # Draw left/right buttons
+    painter.setBrush(QColor(200, 200, 200))
+    painter.drawRect(20, 15, 12, 15)  # Left button
+    painter.drawRect(32, 15, 12, 15)  # Right button
+    
+    # Draw scroll wheel
+    painter.setBrush(QColor(100, 100, 100))
+    painter.drawRect(26, 30, 12, 5)
+    
+    painter.end()
+    
+    return QIcon(pixmap)
 
 class AutoClickerSettingsDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Auto Clicker Settings")
-        self.setWindowIcon(QIcon("icon.png"))
+        self.setWindowIcon(create_default_icon())
         self.setFixedSize(400, 350)
         
         # Create layout
@@ -154,7 +179,7 @@ class AutoClickerApp(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Advanced Auto Clicker")
-        self.setWindowIcon(QIcon("icon.png"))
+        self.setWindowIcon(create_default_icon())
         self.setFixedSize(350, 250)
         
         # Default settings
@@ -234,7 +259,7 @@ class AutoClickerApp(QMainWindow):
     def create_system_tray(self):
         """Create system tray icon and menu"""
         self.tray_icon = QSystemTrayIcon(self)
-        self.tray_icon.setIcon(QIcon("icon.png"))
+        self.tray_icon.setIcon(create_default_icon())
         
         # Create tray menu
         tray_menu = QMenu()
@@ -267,10 +292,19 @@ class AutoClickerApp(QMainWindow):
     
     def register_hotkey(self):
         """Register keyboard shortcut"""
-        keyboard.add_hotkey(
-            self.settings["shortcut"], 
-            self.toggle_clicking
-        )
+        try:
+            keyboard.add_hotkey(
+                self.settings["shortcut"], 
+                self.toggle_clicking
+            )
+        except Exception as e:
+            print(f"Error registering hotkey: {e}")
+            QMessageBox.warning(
+                self,
+                "Hotkey Error",
+                f"Could not register hotkey '{self.settings['shortcut']}':\n{e}",
+                QMessageBox.StandardButton.Ok
+            )
     
     def open_settings(self):
         """Open settings dialog"""
@@ -284,7 +318,10 @@ class AutoClickerApp(QMainWindow):
         
         if dialog.exec() == QDialog.DialogCode.Accepted:
             # Remove old hotkey
-            keyboard.remove_hotkey(self.settings["shortcut"])
+            try:
+                keyboard.remove_hotkey(self.settings["shortcut"])
+            except:
+                pass
             
             # Save new settings
             self.settings = dialog.get_settings()
@@ -388,21 +425,27 @@ class AutoClickerApp(QMainWindow):
 
 
 if __name__ == "__main__":
+    # Create application instance
     app = QApplication(sys.argv)
     
-    # Create a simple icon for the application
-    # In a real app, you would use a proper icon file
-    app.setWindowIcon(QIcon("icon.png"))
+    # Set application name and style
+    app.setApplicationName("Advanced Auto Clicker")
+    app.setStyle("Fusion")
     
-    # Show a warning about admin rights
+    # Create main window
+    window = AutoClickerApp()
+    
+    # Show admin warning on Windows
     if sys.platform == "win32":
         QMessageBox.information(
-            None,
-            "Admin Rights Required",
+            window,
+            "Admin Rights Recommended",
             "For global shortcuts to work properly, you may need to run this application as administrator.",
             QMessageBox.StandardButton.Ok
         )
     
-    window = AutoClickerApp()
+    # Show main window
     window.show()
+    
+    # Start application
     sys.exit(app.exec())
