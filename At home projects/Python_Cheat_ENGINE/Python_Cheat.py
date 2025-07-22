@@ -1,16 +1,19 @@
 import sys
 import time
 import math
-from PyQt6.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QStackedWidget, QVBoxLayout, QLabel, 
-    QPushButton, QListWidget, QLineEdit, QComboBox, QHBoxLayout, QAbstractItemView
-)
-from PyQt6.QtCore import Qt, QTimer
-from PyQt6.QtGui import QColor, QPalette, QFont, QIntValidator
+import os
 import psutil
 import pymem
 import pymem.process
 import ctypes
+from PyQt6.QtWidgets import (
+    QApplication, QMainWindow, QWidget, QStackedWidget, QVBoxLayout, QLabel, 
+    QPushButton, QListWidget, QLineEdit, QComboBox, QHBoxLayout, QAbstractItemView,
+    QListWidgetItem
+)
+from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtGui import QColor, QPalette, QFont, QIntValidator, QIcon
+
 
 # ===========================[ Main Application Window ]===========================
 class MainWindow(QMainWindow):
@@ -21,6 +24,7 @@ class MainWindow(QMainWindow):
         
         # Store the currently selected process
         self.selected_process = None
+        self.selected_process_name = None
         self.scan_results = []
         self.current_scan_value = None
         self.data_type = "int"
@@ -44,6 +48,8 @@ class MainWindow(QMainWindow):
     def switch_to_scene(self, scene_name):
         """Switch between different application scenes"""
         if scene_name == "main_menu":
+            # Update main menu status when switching back
+            self.main_menu.update_status()
             self.stacked_widget.setCurrentWidget(self.main_menu)
         elif scene_name == "process_scanner":
             # Refresh process list when switching to scanner
@@ -73,6 +79,8 @@ class SceneWidget(QWidget):
 class MainMenu(SceneWidget):
     def __init__(self, parent, bg_color):
         super().__init__(parent, bg_color)
+        self.editor_btn = None
+        self.status_label = None
         self.init_ui()
 
     def init_ui(self):
@@ -100,7 +108,7 @@ class MainMenu(SceneWidget):
         title.setFont(QFont("Arial", 24, QFont.Weight.Bold))
 
         # ||||[ Description ]||||
-        description = QLabel('A Python-based memory scanner and editor\nfor educational purposes only ;)', content_widget)
+        description = QLabel('A Python-based memory scanner and editor\nfor educational purposes only', content_widget)
         description.setAlignment(Qt.AlignmentFlag.AlignCenter)
         description.setStyleSheet('''
             font-size: 16px; 
@@ -154,12 +162,10 @@ class MainMenu(SceneWidget):
             }
         ''')
         editor_btn.clicked.connect(lambda: self.parent.switch_to_scene("memory_editor"))
-        # Disable if no process selected
-        editor_btn.setEnabled(self.parent.selected_process is not None)
+        self.editor_btn = editor_btn  # Save reference to update later
 
         # ||||[ Status Bar ]||||
-        status_text = "No process selected" if self.parent.selected_process is None else f"Selected: {self.parent.selected_process}"
-        status = QLabel(status_text, content_widget)
+        status = QLabel("", content_widget)
         status.setAlignment(Qt.AlignmentFlag.AlignCenter)
         status.setStyleSheet('''
             font-size: 14px; 
@@ -167,6 +173,7 @@ class MainMenu(SceneWidget):
             background-color: transparent;
             margin-top: 20px;
         ''')
+        self.status_label = status  # Save reference to update later
 
         # |||||[ Layout ]|||||
         layout = QVBoxLayout(content_widget)
@@ -179,6 +186,19 @@ class MainMenu(SceneWidget):
         layout.addSpacing(30)
         layout.addWidget(status)
         layout.addStretch()
+        
+        # Initial status update
+        self.update_status()
+
+    def update_status(self):
+        """Update the status based on selected process"""
+        if self.parent.selected_process is None:
+            self.status_label.setText("No process selected")
+            self.editor_btn.setEnabled(False)
+        else:
+            name = self.parent.selected_process_name or "Unknown Process"
+            self.status_label.setText(f"Selected: {name} (PID: {self.parent.selected_process})")
+            self.editor_btn.setEnabled(True)
 
 
 # ===========================[ Process Scanner Scene ]===========================
@@ -308,27 +328,59 @@ class ProcessScanner(SceneWidget):
         self.refresh_process_list()
 
     def refresh_process_list(self):
-        """Refresh the list of running processes"""
+        """Refresh the list of running processes with icons"""
         self.process_list.clear()
         self.status_msg.setText("Refreshing process list...")
-        
+        QApplication.processEvents()  # Update UI immediately
+
         # Get list of processes
         processes = []
-        for proc in psutil.process_iter(['pid', 'name']):
+        for proc in psutil.process_iter(['pid', 'name', 'exe']):
             try:
-                processes.append((proc.info['name'], proc.info['pid']))
+                name = proc.info['name']
+                pid = proc.info['pid']
+                exe_path = proc.info['exe']
+                processes.append((name, pid, exe_path))
             except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
                 pass
         
         # Sort by process name
         processes.sort(key=lambda x: x[0].lower())
         
-        # Add to list widget
-        for name, pid in processes:
-            self.process_list.addItem(f"{name} (PID: {pid})")
+        # Add to list widget with icons
+        for name, pid, exe_path in processes:
+            item = QListWidgetItem()
+            
+            # Try to get the icon from the executable
+            icon = self.get_process_icon(exe_path)
+            if icon:
+                item.setIcon(icon)
+                
+            item.setText(f"{name} (PID: {pid})")
+            item.setData(Qt.ItemDataRole.UserRole, (pid, name))  # Store both PID and name
+            self.process_list.addItem(item)
         
         self.status_msg.setText(f"Found {len(processes)} processes")
-        
+
+    def get_process_icon(self, exe_path):
+        """Get the application icon for a process"""
+        if not exe_path or not os.path.exists(exe_path):
+            return None
+            
+        try:
+            # Windows icon extraction
+            if sys.platform == "win32":
+                # Use ExtractIconEx API for better icon handling
+                from PyQt6.QtWinExtras import QtWin
+                large_icon = QtWin.extractIcon(exe_path, 0, True)
+                if large_icon:
+                    return large_icon
+                
+            # Fallback method for all platforms
+            return QIcon(exe_path)
+        except:
+            return None
+
     def select_process(self):
         """Select the highlighted process"""
         selected_items = self.process_list.selectedItems()
@@ -337,34 +389,31 @@ class ProcessScanner(SceneWidget):
             self.status_msg.setStyleSheet('color: #F44336;')
             return
             
-        selected_text = selected_items[0].text()
-        # Extract PID from text
+        selected_item = selected_items[0]
+        pid, name = selected_item.data(Qt.ItemDataRole.UserRole)
+        
+        # Try to open the process to verify access
         try:
-            pid_start = selected_text.rfind("(PID: ") + 6
-            pid_end = selected_text.rfind(")")
-            pid = int(selected_text[pid_start:pid_end])
+            pm = pymem.Pymem()
+            pm.open_process_from_id(pid)
+            pm.close_process()
             
-            # Try to open the process to verify access
-            try:
-                pm = pymem.Pymem()
-                pm.open_process_from_id(pid)
-                pm.close_process()
-                
-                # Store selected process
-                self.parent.selected_process = pid
-                self.status_msg.setText(f"Selected: {selected_text}")
-                self.status_msg.setStyleSheet('color: #4CAF50;')
-                
-                # Switch back to main menu after a delay
-                QTimer.singleShot(1500, lambda: self.parent.switch_to_scene("main_menu"))
-                
-            except pymem.exception.ProcessNotFound:
-                self.status_msg.setText(f"Process not found: {selected_text}")
-                self.status_msg.setStyleSheet('color: #F44336;')
-            except pymem.exception.CouldNotOpenProcess:
-                self.status_msg.setText(f"Access denied: {selected_text}")
-                self.status_msg.setStyleSheet('color: #F44336;')
-                
+            # Store selected process and name
+            self.parent.selected_process = pid
+            self.parent.selected_process_name = name
+            
+            self.status_msg.setText(f"Selected: {name} (PID: {pid})")
+            self.status_msg.setStyleSheet('color: #4CAF50;')
+            
+            # Switch back to main menu after a delay
+            QTimer.singleShot(1500, lambda: self.parent.switch_to_scene("main_menu"))
+            
+        except pymem.exception.ProcessNotFound:
+            self.status_msg.setText(f"Process not found: {name}")
+            self.status_msg.setStyleSheet('color: #F44336;')
+        except pymem.exception.CouldNotOpenProcess:
+            self.status_msg.setText(f"Access denied: {name}")
+            self.status_msg.setStyleSheet('color: #F44336;')
         except Exception as e:
             self.status_msg.setText(f"Error: {str(e)}")
             self.status_msg.setStyleSheet('color: #F44336;')
@@ -418,7 +467,8 @@ class MemoryEditor(SceneWidget):
         title.setFont(QFont("Arial", 18, QFont.Weight.Bold))
 
         # ||||[ Process Info ]||||
-        self.process_info = QLabel(f"Editing: PID {self.parent.selected_process}", content_widget)
+        process_info = f"Editing: {self.parent.selected_process_name or 'Unknown'} (PID: {self.parent.selected_process})"
+        self.process_info = QLabel(process_info, content_widget)
         self.process_info.setStyleSheet('''
             font-size: 16px; 
             color: #FF9800;
