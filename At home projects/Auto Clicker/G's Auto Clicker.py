@@ -106,7 +106,7 @@ class AutoClickerSettingsDialog(QDialog):
         
         # Start/stop shortcut
         shortcut_layout.addWidget(QLabel("Start/Stop Shortcut:"))
-        self.start_stop_edit = QLineEdit("F6")
+        self.start_stop_edit = QLineEdit("ctrl+alt+s")
         self.start_stop_edit.setReadOnly(True)
         shortcut_layout.addWidget(self.start_stop_edit)
         
@@ -178,18 +178,18 @@ class AutoClickerSettingsDialog(QDialog):
 class AutoClickerApp(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Advanced Auto Clicker")
+        self.setWindowTitle("G's Auto Clicker")
         self.setWindowIcon(create_default_icon())
         self.setFixedSize(350, 250)
         
         # Default settings
         self.settings = {
-            "interval": 100,  # ms
+            "interval": 10,  # ms
             "click_type": 0,  # Left click
             "location": 0,    # Current position
             "x": 0,           # Fixed X position
             "y": 0,           # Fixed Y position
-            "shortcut": "F6"  # Default shortcut
+            "shortcut": "ctrl+alt+s"  # Default shortcut
         }
         
         # Auto clicker state
@@ -212,8 +212,8 @@ class AutoClickerApp(QMainWindow):
         layout = QVBoxLayout()
         
         # Status display
-        self.status_label = QLabel("Status: Stopped")
-        self.status_label.setStyleSheet("font-weight: bold; font-size: 16px;")
+        self.status_label = QLabel("Status: Waiting")
+        self.status_label.setStyleSheet("color: white; font-weight: bold; font-size: 16px;")
         self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.status_label)
         
@@ -370,7 +370,7 @@ class AutoClickerApp(QMainWindow):
     def stop_clicking(self):
         """Stop auto clicking"""
         self.status_label.setText("Status: Stopped")
-        self.status_label.setStyleSheet("color: black; font-weight: bold; font-size: 16px;")
+        self.status_label.setStyleSheet("color: red; font-weight: bold; font-size: 16px;")
         self.toggle_btn.setText("Start Clicking")
         self.toggle_btn.setStyleSheet("background-color: #4CAF50; color: white;")
         self.tray_toggle_action.setText("Start Clicking")
@@ -429,7 +429,7 @@ if __name__ == "__main__":
     app = QApplication(sys.argv)
     
     # Set application name and style
-    app.setApplicationName("Advanced Auto Clicker")
+    app.setApplicationName("G's Auto Clicker")
     app.setStyle("Fusion")
     
     # Create main window
