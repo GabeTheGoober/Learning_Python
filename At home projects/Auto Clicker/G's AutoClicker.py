@@ -59,8 +59,8 @@ class AutoClickerSettingsDialog(QDialog):
         # Click interval
         interval_layout.addWidget(QLabel("Click interval (milliseconds):"))
         self.interval_spin = QSpinBox()
-        self.interval_spin.setRange(10, 60000)  # 10ms to 60s
-        self.interval_spin.setValue(100)
+        self.interval_spin.setRange(1, 60000)  # 00001ms to 60s
+        self.interval_spin.setValue(10) # Default to 10ms
         interval_layout.addWidget(self.interval_spin)
         
         # Click type
