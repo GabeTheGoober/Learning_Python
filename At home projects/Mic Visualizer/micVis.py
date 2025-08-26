@@ -8,69 +8,33 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QHBoxLayout, QPushButton, QComboBox, QLabel, 
                              QSlider, QMessageBox, QProgressBar, QCheckBox,
                              QColorDialog, QSpinBox, QGroupBox, QFileDialog,
-                             QMenu, QToolButton, QStyleFactory)
+                             QMenu, QToolButton, QStyleFactory, QListWidget)
 from PyQt5.QtCore import Qt, QTimer, QThread, pyqtSignal, QSettings, QPoint, QRect
 from PyQt5.QtGui import QPainter, QColor, QPen, QPixmap, QImage, QMouseEvent, QFont
 import threading
 import time
 from collections import deque
 
-# Function to find common user directories
-def get_user_directories():
-    directories = []
-    home_dir = os.path.expanduser("~")
-    common_dirs = [
-        os.path.join(home_dir, "Desktop"),
-        os.path.join(home_dir, "Documents"),
-        os.path.join(home_dir, "Downloads"),
-        home_dir
-    ]
-    if sys.platform == "win32":
-        common_dirs.append(os.path.join(os.environ.get("USERPROFILE", ""), "Desktop"))
-        common_dirs.append(os.path.join(os.environ.get("USERPROFILE", ""), "Documents"))
-    elif sys.platform == "darwin":
-        common_dirs.append(os.path.join(home_dir, "Desktop"))
-        common_dirs.append(os.path.join(home_dir, "Documents"))
-    for directory in common_dirs:
-        if os.path.exists(directory):
-            directories.append(directory)
-    return directories
+if sys.platform == 'win32':
+    import ctypes
 
 # Function to find or create the MV_pr.json file and MV_accessories folder
 def find_or_create_mv_pr():
-    user_dirs = get_user_directories()
+    script_dir = os.path.dirname(os.path.abspath(__file__))
     target_filename = "MV_pr.json"
     
     # Create MV_accessories folder if it doesn't exist
-    accessories_dir = None
-    for directory in user_dirs:
-        accessories_path = os.path.join(directory, "MV_accessories")
-        if not os.path.exists(accessories_path):
-            try:
-                os.makedirs(accessories_path)
-                accessories_dir = accessories_path
-                break
-            except Exception as e:
-                print(f"Error creating MV_accessories in {directory}: {e}")
-        else:
-            accessories_dir = accessories_path
-            break
-    if not accessories_dir:
-        accessories_dir = os.path.join(os.getcwd(), "MV_accessories")
-        try:
-            os.makedirs(accessories_dir, exist_ok=True)
-        except Exception as e:
-            print(f"Error creating MV_accessories in current directory: {e}")
+    accessories_dir = os.path.join(script_dir, "MV_accessories")
+    try:
+        os.makedirs(accessories_dir, exist_ok=True)
+    except Exception as e:
+        print(f"Error creating MV_accessories: {e}")
     
     # Check for MV_pr.json
-    for directory in user_dirs:
-        file_path = os.path.join(directory, target_filename)
-        if os.path.exists(file_path):
-            return file_path, accessories_dir
+    file_path = os.path.join(script_dir, target_filename)
     
     # Create default config if not found
-    if user_dirs:
-        file_path = os.path.join(user_dirs[0], target_filename)
+    if not os.path.exists(file_path):
         default_config = {
             'threshold': 300,
             'head_color': [100, 150, 255],
@@ -83,20 +47,16 @@ def find_or_create_mv_pr():
             'window_height': 800,
             'last_device': None,
             'theme': 'default',
-            'selected_accessory': 'None',
-            'accessory_x_offset': 0,
-            'accessory_y_offset': 0,
-            'accessory_scale': 1.0,
+            'accessories': [],
             'character_scale': 1.0  # Added for character size control
         }
         try:
             with open(file_path, 'w') as f:
                 json.dump(default_config, f, indent=4)
-            return file_path, accessories_dir
         except Exception as e:
             print(f"Error creating default config: {e}")
     
-    return target_filename, accessories_dir
+    return file_path, accessories_dir
 
 class AudioWorker(QThread):
     volume_signal = pyqtSignal(int)
@@ -200,6 +160,7 @@ class OverlayWindow(QWidget):
         self.accessory_resize_mode = False
         self.resizing_character = False
         self.character_resize_mode = False
+        self.selected_accessory_index = -1
         self.resize_corner = None
         self.drag_position = QPoint()
         
@@ -229,15 +190,15 @@ class OverlayWindow(QWidget):
                         return
             
             # Check for accessory resize or drag
-            selected_accessory = self.config.get('selected_accessory', 'None')
-            if selected_accessory != 'None' and self.accessory_drag_mode:
-                accessory_image = self.load_accessory_image(selected_accessory)
+            if self.accessory_drag_mode and self.selected_accessory_index >= 0:
+                acc = self.config.get('accessories', [])[self.selected_accessory_index]
+                accessory_image = self.load_accessory_image(acc['name'])
                 if accessory_image:
-                    scale = self.config.get('accessory_scale', 1.0)
+                    scale = acc.get('scale', 1.0)
                     hat_width = int(head_radius * 2.0 * scale)
                     hat_height = int(accessory_image.height() * (hat_width / accessory_image.width()))
-                    hat_x = head_center.x() + self.config.get('accessory_x_offset', 0) - hat_width // 2
-                    hat_y = head_center.y() + self.config.get('accessory_y_offset', 0) - hat_height // 2
+                    hat_x = head_center.x() + acc.get('x_offset', 0) - hat_width // 2
+                    hat_y = head_center.y() + acc.get('y_offset', 0) - hat_height // 2
                     
                     if self.accessory_resize_mode:
                         handle_size = 10
@@ -255,8 +216,7 @@ class OverlayWindow(QWidget):
                                 event.accept()
                                 return
                     
-                    if (hat_x <= event.x() <= hat_x + hat_width and
-                        hat_y <= event.y() <= hat_y + hat_height):
+                    if QRect(hat_x, hat_y, hat_width, hat_height).contains(event.pos()):
                         self.dragging_accessory = True
                         self.drag_position = event.pos()
                         event.accept()
@@ -282,21 +242,23 @@ class OverlayWindow(QWidget):
             self.static_cache = None
             self.update()
             event.accept()
-        elif self.resizing_accessory and self.accessory_resize_mode and event.buttons() & Qt.LeftButton:
+        elif self.resizing_accessory and self.accessory_resize_mode and self.selected_accessory_index >= 0 and event.buttons() & Qt.LeftButton:
             delta = event.pos() - self.drag_position
-            current_scale = self.config.get('accessory_scale', 1.0)
+            acc = self.config.get('accessories', [])[self.selected_accessory_index]
+            current_scale = acc.get('scale', 1.0)
             scale_change = delta.x() / (head_radius * 2.0)
             if 'left' in self.resize_corner:
                 scale_change = -scale_change
             new_scale = max(0.1, current_scale + scale_change * 0.1)
-            self.config['accessory_scale'] = new_scale
+            acc['scale'] = new_scale
             self.drag_position = event.pos()
             self.update()
             event.accept()
-        elif self.dragging_accessory and self.accessory_drag_mode and event.buttons() & Qt.LeftButton:
+        elif self.dragging_accessory and self.accessory_drag_mode and self.selected_accessory_index >= 0 and event.buttons() & Qt.LeftButton:
             delta = event.pos() - self.drag_position
-            self.config['accessory_x_offset'] += delta.x()
-            self.config['accessory_y_offset'] += delta.y()
+            acc = self.config.get('accessories', [])[self.selected_accessory_index]
+            acc['x_offset'] = acc.get('x_offset', 0) + delta.x()
+            acc['y_offset'] = acc.get('y_offset', 0) + delta.y()
             self.drag_position = event.pos()
             self.update()
             event.accept()
@@ -346,7 +308,7 @@ class OverlayWindow(QWidget):
         self.update()
         
     def load_accessory_image(self, accessory_name):
-        if accessory_name == "None" or not accessory_name:
+        if not accessory_name:
             return None
         if accessory_name not in self.accessory_images:
             accessory_path = os.path.join(self.accessories_dir, f"{accessory_name}.png")
@@ -471,17 +433,17 @@ class OverlayWindow(QWidget):
                 painter.setBrush(Qt.NoBrush)
                 painter.drawEllipse(head_center, wave_radius, wave_radius)
 
-        selected_accessory = self.config.get('selected_accessory', 'None')
-        if selected_accessory != 'None':
-            accessory_image = self.load_accessory_image(selected_accessory)
+        for i, acc in enumerate(self.config.get('accessories', [])):
+            accessory_name = acc.get('name')
+            accessory_image = self.load_accessory_image(accessory_name)
             if accessory_image:
-                scale = self.config.get('accessory_scale', 1.0)
+                scale = acc.get('scale', 1.0)
                 hat_width = int(head_radius * 2.0 * scale)
                 hat_height = int(accessory_image.height() * (hat_width / accessory_image.width()))
                 scaled_accessory = accessory_image.scaled(hat_width, hat_height, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-                hat_x = head_center.x() + self.config.get('accessory_x_offset', 0) - hat_width // 2
-                hat_y = head_center.y() + self.config.get('accessory_y_offset', 0) - hat_height // 2
-                if self.accessory_drag_mode:
+                hat_x = head_center.x() + acc.get('x_offset', 0) - hat_width // 2
+                hat_y = head_center.y() + acc.get('y_offset', 0) - hat_height // 2
+                if self.accessory_drag_mode and i == self.selected_accessory_index:
                     painter.setPen(QPen(QColor(0, 255, 0), 2))
                     painter.setBrush(Qt.NoBrush)
                     painter.drawRect(hat_x, hat_y, hat_width, hat_height)
@@ -514,6 +476,8 @@ class MainWindow(QMainWindow):
         
         self.setup_ui()
         self.apply_theme(self.config.get('theme', 'default'))
+        self.populate_accessories()
+        self.update_accessories_list()
         self.refresh_audio_devices()
         
     def load_config(self):
@@ -529,10 +493,7 @@ class MainWindow(QMainWindow):
             'window_height': 800,
             'last_device': None,
             'theme': 'default',
-            'selected_accessory': 'None',
-            'accessory_x_offset': 0,
-            'accessory_y_offset': 0,
-            'accessory_scale': 1.0,
+            'accessories': [],
             'character_scale': 1.0
         }
         try:
@@ -542,6 +503,18 @@ class MainWindow(QMainWindow):
                 for key in default_config:
                     if key in loaded_config:
                         default_config[key] = loaded_config[key]
+                # Migrate old single accessory to list
+                if 'selected_accessory' in loaded_config and loaded_config['selected_accessory'] != 'None':
+                    default_config['accessories'].append({
+                        'name': loaded_config['selected_accessory'],
+                        'x_offset': loaded_config.get('accessory_x_offset', 0),
+                        'y_offset': loaded_config.get('accessory_y_offset', 0),
+                        'scale': loaded_config.get('accessory_scale', 1.0)
+                    })
+                # Remove old keys
+                for old_key in ['selected_accessory', 'accessory_x_offset', 'accessory_y_offset', 'accessory_scale']:
+                    if old_key in default_config:
+                        del default_config[old_key]
                 print(f"Loaded configuration from {self.mv_pr_path}")
         except Exception as e:
             print(f"Error loading config from {self.mv_pr_path}: {e}")
@@ -630,25 +603,35 @@ class MainWindow(QMainWindow):
         wave_layout.addStretch()
         viz_layout.addLayout(wave_layout)
         
-        accessory_layout = QHBoxLayout()
-        accessory_layout.addWidget(QLabel("Accessory:"))
-        self.accessory_combo = QComboBox()
-        self.accessory_combo.setMaximumWidth(250)
-        self.populate_accessories()
-        self.accessory_combo.setCurrentText(self.config['selected_accessory'])
-        self.accessory_combo.currentTextChanged.connect(self.update_accessory)
-        accessory_layout.addWidget(self.accessory_combo)
-        self.lock_move_btn = QPushButton("Lock Accessory")
-        self.lock_move_btn.clicked.connect(self.toggle_accessory_drag_mode)
-        accessory_layout.addWidget(self.lock_move_btn)
-        self.resize_btn = QPushButton("Resize Accessory")
+        accessory_group = QGroupBox("Accessories")
+        acc_layout = QVBoxLayout(accessory_group)
+        add_layout = QHBoxLayout()
+        add_layout.addWidget(QLabel("Add Accessory:"))
+        self.add_accessory_combo = QComboBox()
+        self.add_accessory_combo.setMaximumWidth(250)
+        add_layout.addWidget(self.add_accessory_combo)
+        add_btn = QPushButton("Add")
+        add_btn.clicked.connect(self.add_accessory)
+        add_layout.addWidget(add_btn)
+        acc_layout.addLayout(add_layout)
+        self.accessories_list = QListWidget()
+        self.accessories_list.currentRowChanged.connect(self.update_selected_accessory)
+        acc_layout.addWidget(self.accessories_list)
+        acc_btn_layout = QHBoxLayout()
+        remove_btn = QPushButton("Remove Selected")
+        remove_btn.clicked.connect(self.remove_accessory)
+        acc_btn_layout.addWidget(remove_btn)
+        self.move_btn = QPushButton("Enable Accessory Move")
+        self.move_btn.clicked.connect(self.toggle_accessory_drag_mode)
+        acc_btn_layout.addWidget(self.move_btn)
+        self.resize_btn = QPushButton("Enable Accessory Resize")
         self.resize_btn.clicked.connect(self.toggle_accessory_resize_mode)
-        accessory_layout.addWidget(self.resize_btn)
+        acc_btn_layout.addWidget(self.resize_btn)
         self.character_resize_btn = QPushButton("Resize Character")
         self.character_resize_btn.clicked.connect(self.toggle_character_resize_mode)
-        accessory_layout.addWidget(self.character_resize_btn)
-        accessory_layout.addStretch()
-        viz_layout.addLayout(accessory_layout)
+        acc_btn_layout.addWidget(self.character_resize_btn)
+        acc_layout.addLayout(acc_btn_layout)
+        viz_layout.addWidget(accessory_group)
         
         color_layout = QHBoxLayout()
         self.head_color_btn = QPushButton("Head Color")
@@ -699,7 +682,7 @@ class MainWindow(QMainWindow):
         
         settings_layout = QHBoxLayout()
         self.save_btn = QPushButton("Save Settings")
-        self.save_btn.clicked.connect(self.save_config)  # Fixed typo from random_word
+        self.save_btn.clicked.connect(self.save_config)
         settings_layout.addWidget(self.save_btn)
         self.load_btn = QPushButton("Load Settings")
         self.load_btn.clicked.connect(self.load_settings)
@@ -838,43 +821,58 @@ class MainWindow(QMainWindow):
         self.stop_btn.setStyleSheet("QPushButton { background-color: #F44336; color: white; font-weight: bold; }")
         
     def populate_accessories(self):
-        self.accessory_combo.addItem("None")
+        self.add_accessory_combo.clear()
+        accessories = []
         if os.path.exists(self.accessories_dir):
-            for file_name in os.listdir(self.accessories_dir):
-                if file_name.lower().endswith('.png'):
-                    accessory_name = os.path.splitext(file_name)[0]
-                    self.accessory_combo.addItem(accessory_name)
+            for root, _, files in os.walk(self.accessories_dir):
+                for file in files:
+                    if file.lower().endswith('.png'):
+                        rel_path = os.path.relpath(os.path.join(root, file), self.accessories_dir)[:-4]
+                        accessories.append(rel_path)
+        accessories.sort()
+        for name in accessories:
+            self.add_accessory_combo.addItem(name)
     
-    def update_accessory(self, accessory_name):
-        self.config['selected_accessory'] = accessory_name
-        self.config['accessory_x_offset'] = 0
-        self.config['accessory_y_offset'] = 0
-        self.config['accessory_scale'] = 1.0
+    def update_accessories_list(self):
+        self.accessories_list.clear()
+        for acc in self.config.get('accessories', []):
+            self.accessories_list.addItem(acc['name'])
+    
+    def add_accessory(self):
+        name = self.add_accessory_combo.currentText()
+        if name:
+            self.config['accessories'].append({'name': name, 'x_offset': 0, 'y_offset': 0, 'scale': 1.0})
+            self.update_accessories_list()
+            if hasattr(self, 'overlay'):
+                self.overlay.update()
+    
+    def remove_accessory(self):
+        row = self.accessories_list.currentRow()
+        if row >= 0:
+            del self.config['accessories'][row]
+            self.update_accessories_list()
+            if hasattr(self, 'overlay'):
+                self.overlay.selected_accessory_index = -1
+                self.overlay.update()
+    
+    def update_selected_accessory(self, row):
         if hasattr(self, 'overlay'):
-            self.overlay.config['selected_accessory'] = accessory_name
-            self.overlay.config['accessory_x_offset'] = 0
-            self.overlay.config['accessory_y_offset'] = 0
-            self.overlay.config['accessory_scale'] = 1.0
-            self.overlay.update()
+            self.overlay.selected_accessory_index = row
     
     def toggle_accessory_drag_mode(self):
         if hasattr(self, 'overlay'):
-            self.overlay.accessory_drag_mode = not self.overlay.accessory_drag_mode
-            self.lock_move_btn.setText("Move Accessory" if self.overlay.accessory_drag_mode else "Lock Accessory")
-            self.overlay.update()
+            self.overlay.set_accessory_drag_mode(not self.overlay.accessory_drag_mode)
+            self.move_btn.setText("Disable Accessory Move" if self.overlay.accessory_drag_mode else "Enable Accessory Move")
     
     def toggle_accessory_resize_mode(self):
         if hasattr(self, 'overlay'):
-            self.overlay.accessory_resize_mode = not self.overlay.accessory_resize_mode
-            self.resize_btn.setText("Stop Resize" if self.overlay.accessory_resize_mode else "Resize Accessory")
-            self.overlay.update()
+            self.overlay.set_accessory_resize_mode(not self.overlay.accessory_resize_mode)
+            self.resize_btn.setText("Disable Accessory Resize" if self.overlay.accessory_resize_mode else "Enable Accessory Resize")
     
     def toggle_character_resize_mode(self):
         if hasattr(self, 'overlay'):
-            self.overlay.character_resize_mode = not self.overlay.character_resize_mode
+            self.overlay.set_character_resize_mode(not self.overlay.character_resize_mode)
             self.character_resize_btn.setText("Stop Resize" if self.overlay.character_resize_mode else "Resize Character")
-            self.overlay.static_cache = None
-            self.overlay.update()
     
     def refresh_audio_devices(self):
         self.device_combo.clear()
@@ -1021,7 +1019,7 @@ class MainWindow(QMainWindow):
                         self.config[key] = loaded_config[key]
                 self.threshold_slider.setValue(self.config['threshold'])
                 self.wave_spin.setValue(self.config['wave_count'])
-                self.accessory_combo.setCurrentText(self.config['selected_accessory'])
+                self.update_accessories_list()
                 if 'theme' in loaded_config:
                     self.apply_theme(loaded_config['theme'])
                 self.status_bar.setText("Settings loaded successfully.")
@@ -1035,9 +1033,14 @@ class MainWindow(QMainWindow):
         self.save_config()
         event.accept()
 
+
 if __name__ == "__main__":
     app = QApplication(sys.argv)
     app.setStyle(QStyleFactory.create("Fusion"))
     main_window = MainWindow()
     main_window.show()
+    if sys.platform == 'win32':
+        hwnd = ctypes.windll.kernel32.GetConsoleWindow()
+        if hwnd:
+            ctypes.windll.user32.ShowWindow(hwnd, 6)  # 6 = SW_MINIMIZE
     sys.exit(app.exec_())
