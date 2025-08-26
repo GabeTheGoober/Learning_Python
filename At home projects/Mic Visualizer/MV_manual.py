@@ -1,71 +1,89 @@
 import sys
-from PyQt5.QtWidgets import QApplication, QMainWindow, QTextBrowser, QVBoxLayout, QWidget
+import os
+from PyQt5.QtWidgets import QApplication, QDialog, QVBoxLayout, QTextBrowser, QPushButton
 from PyQt5.QtCore import Qt
 
-class ManualWindow(QMainWindow):
+class ManualDialog(QDialog):
+    """Displays the MicVis user manual."""
     def __init__(self):
         super().__init__()
         self.setWindowTitle("MicVis Manual")
-        self.setGeometry(200, 200, 600, 400)
-        central = QWidget()
-        layout = QVBoxLayout(central)
+        self.setGeometry(100, 100, 600, 400)
+        
+        # Set up layout
+        layout = QVBoxLayout(self)
+        
+        # Text browser for manual content
         browser = QTextBrowser()
         browser.setOpenExternalLinks(True)
-        browser.setHtml("""
-<h1>MicVis App Manual</h1>
-<p>Welcome to MicVis, a Python-based application that creates a virtual character overlay responding to microphone input. This manual guides you through its features and usage.</p>
-
-<h2>Overview</h2>
-<p>The app consists of a control window for settings and an overlay window showing the character. The character blinks, opens its mouth when speaking, and shows sound waves.</p>
-
-<h2>Getting Started</h2>
-<ol>
-<li><b>Select Microphone:</b> In "Audio Settings", choose your microphone from the dropdown. Click "Refresh" if needed.</li>
-<li><b>Calibrate Sensitivity:</b> Click "Calibrate Sensitivity" and stay silent for 3 seconds to set background noise level.</li>
-<li><b>Adjust Sensitivity:</b> Use the slider in "Visualization Settings" to set the threshold for detecting speech.</li>
-<li><b>Start Overlay:</b> Click "Start Overlay" to launch the character window.</li>
-<li><b>Speak:</b> Talk into the microphone to see the character react.</li>
-<li><b>Stop Overlay:</b> Click "Stop Overlay" to close the character window.</li>
-</ol>
-
-<h2>Customization</h2>
-<h3>Appearance Settings</h3>
-<p>Click "Appearance Settings" button:</p>
-<ul>
-<li><b>Wave Count:</b> Set the number of sound waves (1-10).</li>
-<li><b>Colors:</b> Change head, mouth, and wave colors using the buttons.</li>
-</ul>
-
-<h3>Themes</h3>
-<p>Click the 🎨 button to select a theme: Default, Red, Blue, or Dark.</li>
-
-<h3>Accessories</h3>
-<p>Add PNG images to the "MV_accessories" folder (or subfolders) in the app's directory.</p>
-<ul>
-<li><b>Add Accessory:</b> Select from the dropdown and click "Add".</li>
-<li><b>Remove:</b> Select in the list and click "Remove Selected".</li>
-<li><b>Position/Size:</b> Select accessory, enable "Move" or "Resize", then drag/resize in overlay.</li>
-</ul>
-<p><b>Resize Character:</b> Enable "Resize Character" and drag corners in overlay.</p>
-
-<h2>Saving and Loading</h2>
-<p>Click "Save Settings" to save config to MV_pr.json.</p>
-<p>Click "Load Settings" to load from a JSON file.</p>
-
-<h2>Troubleshooting</h2>
-<ul>
-<li>No devices: Check microphone connection.</li>
-<li>Overlay not responding: Check sensitivity and volume meter.</li>
-<li>Accessories not loading: Ensure PNG files in correct folder.</li>
-</ul>
-
-<p>For issues, check console or restart app.</p>
-""")
+        manual_content = """
+            <h1>MicVis User Manual</h1>
+            <h2>Welcome to MicVis</h2>
+            <p>MicVis is a microphone visualization tool that displays a character responding to audio input with customizable visuals.</p>
+            
+            <h2>Setup</h2>
+            <ul>
+                <li><b>Install Dependencies</b>: Ensure you have the required libraries installed. Run <code>pip install -r requirements.txt</code> to install PyQt5, pyaudio, numpy, and scipy.</li>
+                <li><b>Add Accessories</b>: Place accessory images (.png, .jpg, .gif) in the <code>MV_accessories</code> folder.</li>
+                <li><b>Add Characters</b>: Place character images (.png, .jpg, .gif) in the <code>MV_characters</code> folder.</li>
+                <li><b>Configuration</b>: The app automatically creates <code>MV_pr.json</code> for settings. Do not delete this file.</li>
+            </ul>
+            
+            <h2>Usage</h2>
+            <ol>
+                <li><b>Select Microphone</b>: Choose an audio input device from the dropdown. Click "Refresh" to update the list.</li>
+                <li><b>Calibrate Sensitivity</b>: Click "Calibrate Sensitivity" to set an appropriate threshold based on background noise.</li>
+                <li><b>Customize Appearance</b>: Use "Appearance Settings" to change themes, colors, and wave count.</li>
+                <li><b>Advanced Settings</b>: Configure wave patterns, background effects, character models, and animations.</li>
+                <li><b>Add Accessories</b>: Select accessories from the dropdown and click "Add". Adjust their position and scale using drag/resize modes.</li>
+                <li><b>Start Overlay</b>: Click "Start Overlay" to display the visualization. Speak to see the character respond.</li>
+                <li><b>Save/Load Settings</b>: Save your configuration or load a previous one using the respective buttons.</li>
+            </ol>
+            
+            <h2>Troubleshooting</h2>
+            <ul>
+                <li><b>No Audio Devices Found</b>: Ensure your microphone is connected and recognized by your system.</li>
+                <li><b>Overlay Not Responding</b>: Check the sensitivity threshold and ensure the correct microphone is selected.</li>
+                <li><b>Images Not Loading</b>: Verify that images in <code>MV_accessories</code> and <code>MV_characters</code> are valid .png, .jpg, or .gif files.</li>
+                <li><b>Performance Issues</b>: Reduce wave count or disable frequency analysis in Advanced Settings.</li>
+            </ul>
+            
+            <h2>Support</h2>
+            <p>For further assistance, contact the developer or check the project repository at <a href="https://github.com/your-repo/micvis">github.com/your-repo/micvis</a>.</p>
+        """
+        browser.setHtml(manual_content)
         layout.addWidget(browser)
-        self.setCentralWidget(central)
+        
+        # Close button
+        close_btn = QPushButton("Close")
+        close_btn.clicked.connect(self.close)
+        layout.addWidget(close_btn)
+        
+        # Apply stylesheet for consistency
+        self.setStyleSheet("""
+            QDialog {
+                background-color: #f0f0f0;
+                color: #333333;
+            }
+            QPushButton {
+                background-color: #e0e0e0;
+                border: 1px solid #bbbbbb;
+                padding: 6px;
+                border-radius: 4px;
+            }
+            QPushButton:hover {
+                background-color: #d0d0d0;
+            }
+            QTextBrowser {
+                background-color: white;
+                border: 1px solid #bbbbbb;
+                border-radius: 4px;
+                padding: 10px;
+            }
+        """)
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
-    win = ManualWindow()
-    win.show()
+    dialog = ManualDialog()
+    dialog.show()
     sys.exit(app.exec_())
