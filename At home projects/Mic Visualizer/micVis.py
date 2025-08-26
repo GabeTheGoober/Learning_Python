@@ -8,12 +8,14 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QHBoxLayout, QPushButton, QComboBox, QLabel, 
                              QSlider, QMessageBox, QProgressBar, QCheckBox,
                              QColorDialog, QSpinBox, QGroupBox, QFileDialog,
-                             QMenu, QToolButton, QStyleFactory, QListWidget)
+                             QMenu, QToolButton, QStyleFactory, QListWidget,
+                             QDialog, QSizePolicy, QTextBrowser)
 from PyQt5.QtCore import Qt, QTimer, QThread, pyqtSignal, QSettings, QPoint, QRect
 from PyQt5.QtGui import QPainter, QColor, QPen, QPixmap, QImage, QMouseEvent, QFont
 import threading
 import time
 from collections import deque
+import subprocess
 
 if sys.platform == 'win32':
     import ctypes
@@ -48,7 +50,7 @@ def find_or_create_mv_pr():
             'last_device': None,
             'theme': 'default',
             'accessories': [],
-            'character_scale': 1.0  # Added for character size control
+            'character_scale': 1.0
         }
         try:
             with open(file_path, 'w') as f:
@@ -128,7 +130,7 @@ class OverlayWindow(QWidget):
         super().__init__()
         self.config = config
         self.accessories_dir = accessories_dir
-        self.setWindowTitle("Virtual Character Overlay")
+        self.setWindowTitle("MicVis Overlay")
         self.setWindowFlags(Qt.WindowStaysOnTopHint | Qt.FramelessWindowHint | Qt.Tool)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setAttribute(Qt.WA_NoSystemBackground)
@@ -377,7 +379,7 @@ class OverlayWindow(QWidget):
             head_x = head_center.x() - head_width // 2
             head_y = head_center.y() - head_width // 2
             painter.setPen(Qt.NoPen)
-            painter.setBrush(Qt.white)
+            painter.setBrush(QColor(255, 255, 255, 200))
             handle_size = 10
             corners = [
                 (head_x, head_y),
@@ -386,7 +388,7 @@ class OverlayWindow(QWidget):
                 (head_x + head_width - handle_size, head_y + head_width - handle_size)
             ]
             for x, y in corners:
-                painter.drawRect(x, y, handle_size, handle_size)
+                painter.drawEllipse(x, y, handle_size, handle_size)
         
     def draw_dynamic_elements(self, painter):
         head_center = self.rect().center()
@@ -444,13 +446,13 @@ class OverlayWindow(QWidget):
                 hat_x = head_center.x() + acc.get('x_offset', 0) - hat_width // 2
                 hat_y = head_center.y() + acc.get('y_offset', 0) - hat_height // 2
                 if self.accessory_drag_mode and i == self.selected_accessory_index:
-                    painter.setPen(QPen(QColor(0, 255, 0), 2))
+                    painter.setPen(QPen(QColor(0, 255, 0, 200), 2, Qt.DashLine))
                     painter.setBrush(Qt.NoBrush)
                     painter.drawRect(hat_x, hat_y, hat_width, hat_height)
                     if self.accessory_resize_mode:
                         handle_size = 10
                         painter.setPen(Qt.NoPen)
-                        painter.setBrush(Qt.white)
+                        painter.setBrush(QColor(255, 255, 255, 200))
                         corners = [
                             (hat_x, hat_y),
                             (hat_x + hat_width - handle_size, hat_y),
@@ -458,14 +460,81 @@ class OverlayWindow(QWidget):
                             (hat_x + hat_width - handle_size, hat_y + hat_height - handle_size)
                         ]
                         for x, y in corners:
-                            painter.drawRect(x, y, handle_size, handle_size)
+                            painter.drawEllipse(x, y, handle_size, handle_size)
                 painter.drawImage(hat_x, hat_y, scaled_accessory)
+
+class AppearanceSettings(QDialog):
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.parent = parent
+        self.setWindowTitle("Appearance Settings")
+        layout = QVBoxLayout(self)
+
+        # Theme preview
+        theme_group = QGroupBox("Theme Selection")
+        theme_layout = QHBoxLayout(theme_group)
+        theme_layout.addWidget(QLabel("Theme:"))
+        self.theme_combo = QComboBox()
+        self.theme_combo.addItems(['Default', 'Red', 'Blue', 'Dark', 'Light', 'Purple', 'Green'])
+        self.theme_combo.setCurrentText(parent.config['theme'].capitalize())
+        self.theme_combo.currentTextChanged.connect(self.preview_theme)
+        theme_layout.addWidget(self.theme_combo)
+        preview_btn = QPushButton("Preview")
+        preview_btn.clicked.connect(self.apply_preview)
+        theme_layout.addWidget(preview_btn)
+        layout.addWidget(theme_group)
+
+        # Wave count
+        wave_layout = QHBoxLayout()
+        wave_layout.addWidget(QLabel("Wave Count:"))
+        self.wave_spin = QSpinBox()
+        self.wave_spin.setMinimum(1)
+        self.wave_spin.setMaximum(10)
+        self.wave_spin.setValue(parent.config['wave_count'])
+        self.wave_spin.valueChanged.connect(parent.update_wave_count)
+        wave_layout.addWidget(self.wave_spin)
+        wave_layout.addStretch()
+        layout.addLayout(wave_layout)
+
+        # Colors
+        color_layout = QHBoxLayout()
+        head_color_btn = QPushButton("Head Color")
+        head_color_btn.clicked.connect(lambda: parent.change_color('head_color'))
+        color_layout.addWidget(head_color_btn)
+        mouth_color_btn = QPushButton("Mouth Color")
+        mouth_color_btn.clicked.connect(lambda: parent.change_color('mouth_color'))
+        color_layout.addWidget(mouth_color_btn)
+        wave_color_btn = QPushButton("Wave Color")
+        wave_color_btn.clicked.connect(lambda: parent.change_color('wave_color'))
+        color_layout.addWidget(wave_color_btn)
+        layout.addLayout(color_layout)
+
+        # Buttons
+        btn_layout = QHBoxLayout()
+        apply_btn = QPushButton("Apply")
+        apply_btn.clicked.connect(self.apply_changes)
+        btn_layout.addWidget(apply_btn)
+        close_btn = QPushButton("Close")
+        close_btn.clicked.connect(self.close)
+        btn_layout.addWidget(close_btn)
+        layout.addLayout(btn_layout)
+
+    def preview_theme(self, theme_name):
+        self.parent.preview_theme(theme_name.lower())
+
+    def apply_preview(self):
+        self.parent.apply_theme(self.theme_combo.currentText().lower())
+
+    def apply_changes(self):
+        self.parent.apply_theme(self.theme_combo.currentText().lower())
+        self.parent.save_config()
+        self.close()
 
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Virtual Character Controller")
-        self.setGeometry(100, 100, 500, 600)
+        self.setWindowTitle("MicVis")
+        self.setGeometry(100, 100, 500, 650)
         
         self.audio_worker = None
         self.audio_devices = []
@@ -532,9 +601,11 @@ class MainWindow(QMainWindow):
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         layout = QVBoxLayout(central_widget)
+        layout.setSpacing(10)
+        layout.setContentsMargins(10, 10, 10, 10)
         
         header_layout = QHBoxLayout()
-        title = QLabel("Virtual Character Controller")
+        title = QLabel("MicVis Controller")
         title_font = QFont()
         title_font.setPointSize(16)
         title_font.setBold(True)
@@ -547,16 +618,14 @@ class MainWindow(QMainWindow):
         self.theme_button.setToolTip("Theme")
         self.theme_button.setPopupMode(QToolButton.InstantPopup)
         theme_menu = QMenu(self)
-        theme_menu.addAction("Default Theme", lambda: self.apply_theme('default'))
-        theme_menu.addAction("Red Theme", lambda: self.apply_theme('red'))
-        theme_menu.addAction("Blue Theme", lambda: self.apply_theme('blue'))
-        theme_menu.addAction("Dark Theme", lambda: self.apply_theme('dark'))
+        themes = ['Default', 'Red', 'Blue', 'Dark', 'Light', 'Purple', 'Green']
+        for theme in themes:
+            theme_menu.addAction(theme, lambda t=theme: self.apply_theme(t.lower()))
         self.theme_button.setMenu(theme_menu)
         header_layout.addWidget(self.theme_button)
         layout.addLayout(header_layout)
         
         device_group = QGroupBox("Audio Settings")
-        device_group.setStyleSheet("QGroupBox { font-weight: bold; }")
         device_layout = QVBoxLayout(device_group)
         device_select_layout = QHBoxLayout()
         device_select_layout.addWidget(QLabel("Microphone:"))
@@ -573,7 +642,6 @@ class MainWindow(QMainWindow):
         layout.addWidget(device_group)
         
         viz_group = QGroupBox("Visualization Settings")
-        viz_group.setStyleSheet("QGroupBox { font-weight: bold; }")
         viz_layout = QVBoxLayout(viz_group)
         
         threshold_layout = QHBoxLayout()
@@ -592,16 +660,9 @@ class MainWindow(QMainWindow):
         threshold_layout.addWidget(self.threshold_label)
         viz_layout.addLayout(threshold_layout)
         
-        wave_layout = QHBoxLayout()
-        wave_layout.addWidget(QLabel("Wave Count:"))
-        self.wave_spin = QSpinBox()
-        self.wave_spin.setMinimum(1)
-        self.wave_spin.setMaximum(10)
-        self.wave_spin.setValue(self.config['wave_count'])
-        self.wave_spin.valueChanged.connect(self.update_wave_count)
-        wave_layout.addWidget(self.wave_spin)
-        wave_layout.addStretch()
-        viz_layout.addLayout(wave_layout)
+        appearance_btn = QPushButton("Appearance Settings")
+        appearance_btn.clicked.connect(self.open_appearance_settings)
+        viz_layout.addWidget(appearance_btn)
         
         accessory_group = QGroupBox("Accessories")
         acc_layout = QVBoxLayout(accessory_group)
@@ -633,36 +694,13 @@ class MainWindow(QMainWindow):
         acc_layout.addLayout(acc_btn_layout)
         viz_layout.addWidget(accessory_group)
         
-        color_layout = QHBoxLayout()
-        self.head_color_btn = QPushButton("Head Color")
-        self.head_color_btn.clicked.connect(lambda: self.change_color('head_color'))
-        color_layout.addWidget(self.head_color_btn)
-        self.mouth_color_btn = QPushButton("Mouth Color")
-        self.mouth_color_btn.clicked.connect(lambda: self.change_color('mouth_color'))
-        color_layout.addWidget(self.mouth_color_btn)
-        self.wave_color_btn = QPushButton("Wave Color")
-        self.wave_color_btn.clicked.connect(lambda: self.change_color('wave_color'))
-        color_layout.addWidget(self.wave_color_btn)
-        viz_layout.addLayout(color_layout)
         layout.addWidget(viz_group)
         
         meter_group = QGroupBox("Volume Meter")
-        meter_group.setStyleSheet("QGroupBox { font-weight: bold; }")
         meter_layout = QVBoxLayout(meter_group)
         self.volume_bar = QProgressBar()
         self.volume_bar.setMaximum(1000)
         self.volume_bar.setTextVisible(False)
-        self.volume_bar.setStyleSheet("""
-            QProgressBar {
-                border: 2px solid grey;
-                border-radius: 5px;
-                text-align: center;
-            }
-            QProgressBar::chunk {
-                background-color: #05B8CC;
-                width: 10px;
-            }
-        """)
         meter_layout.addWidget(self.volume_bar)
         self.volume_label = QLabel("Volume: 0")
         meter_layout.addWidget(self.volume_label)
@@ -671,12 +709,10 @@ class MainWindow(QMainWindow):
         btn_layout = QHBoxLayout()
         self.start_btn = QPushButton("Start Overlay")
         self.start_btn.clicked.connect(self.start_overlay)
-        self.start_btn.setStyleSheet("QPushButton { background-color: #4CAF50; color: white; font-weight: bold; }")
         btn_layout.addWidget(self.start_btn)
         self.stop_btn = QPushButton("Stop Overlay")
         self.stop_btn.clicked.connect(self.stop_overlay)
         self.stop_btn.setEnabled(False)
-        self.stop_btn.setStyleSheet("QPushButton { background-color: #F44336; color: white; font-weight: bold; }")
         btn_layout.addWidget(self.stop_btn)
         layout.addLayout(btn_layout)
         
@@ -689,23 +725,176 @@ class MainWindow(QMainWindow):
         settings_layout.addWidget(self.load_btn)
         layout.addLayout(settings_layout)
         
+        bottom_layout = QHBoxLayout()
+        self.manual_button = QToolButton()
+        self.manual_button.setText("🕮")
+        self.manual_button.setToolTip("Manual")
+        self.manual_button.clicked.connect(self.open_manual)
+        bottom_layout.addWidget(self.manual_button)
         self.status_bar = QLabel("Ready")
-        self.status_bar.setStyleSheet("QLabel { background-color: #f0f0f0; padding: 3px; }")
-        layout.addWidget(self.status_bar)
+        self.status_bar.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        bottom_layout.addWidget(self.status_bar)
+        bottom_layout.addStretch()
+        layout.addLayout(bottom_layout)
         
     def apply_theme(self, theme_name):
         self.config['theme'] = theme_name
-        if theme_name == 'red':
-            self.setStyleSheet("""
+        volume_bar_styles = {
+            'default': """
+                QProgressBar {
+                    border: 2px solid #888888;
+                    border-radius: 5px;
+                    text-align: center;
+                    background-color: #f0f0f0;
+                }
+                QProgressBar::chunk {
+                    background-color: #05B8CC;
+                    width: 10px;
+                }
+            """,
+            'red': """
+                QProgressBar {
+                    border: 2px solid #cc9999;
+                    border-radius: 5px;
+                    text-align: center;
+                    background-color: #ffe5e5;
+                }
+                QProgressBar::chunk {
+                    background-color: #ff5555;
+                    width: 10px;
+                }
+            """,
+            'blue': """
+                QProgressBar {
+                    border: 2px solid #9999cc;
+                    border-radius: 5px;
+                    text-align: center;
+                    background-color: #e5e5ff;
+                }
+                QProgressBar::chunk {
+                    background-color: #5555ff;
+                    width: 10px;
+                }
+            """,
+            'dark': """
+                QProgressBar {
+                    border: 2px solid #777777;
+                    border-radius: 5px;
+                    text-align: center;
+                    background-color: #444444;
+                }
+                QProgressBar::chunk {
+                    background-color: #00aaaa;
+                    width: 10px;
+                }
+            """,
+            'light': """
+                QProgressBar {
+                    border: 2px solid #cccccc;
+                    border-radius: 5px;
+                    text-align: center;
+                    background-color: #ffffff;
+                }
+                QProgressBar::chunk {
+                    background-color: #66ccff;
+                    width: 10px;
+                }
+            """,
+            'purple': """
+                QProgressBar {
+                    border: 2px solid #aa88cc;
+                    border-radius: 5px;
+                    text-align: center;
+                    background-color: #f0e5ff;
+                }
+                QProgressBar::chunk {
+                    background-color: #8855cc;
+                    width: 10px;
+                }
+            """,
+            'green': """
+                QProgressBar {
+                    border: 2px solid #88cc88;
+                    border-radius: 5px;
+                    text-align: center;
+                    background-color: #e5ffe5;
+                }
+                QProgressBar::chunk {
+                    background-color: #55aa55;
+                    width: 10px;
+                }
+            """
+        }
+
+        stylesheets = {
+            'default': """
                 QMainWindow, QWidget {
-                    background-color: #ffeeee;
+                    background-color: #f0f0f0;
+                    color: #333333;
+                }
+                QPushButton {
+                    background-color: #e0e0e0;
+                    border: 1px solid #bbbbbb;
+                    padding: 6px;
+                    border-radius: 4px;
+                }
+                QPushButton:hover {
+                    background-color: #d0d0d0;
+                }
+                QGroupBox {
+                    font-weight: bold;
+                    border: 2px solid #bbbbbb;
+                    border-radius: 6px;
+                    margin-top: 1.5ex;
+                    padding-top: 10px;
+                }
+                QGroupBox::title {
+                    subcontrol-origin: margin;
+                    left: 10px;
+                    padding: 0 5px;
+                }
+                QComboBox {
+                    background-color: white;
+                    border: 1px solid #bbbbbb;
+                    padding: 4px;
+                    border-radius: 4px;
+                }
+                QComboBox::drop-down {
+                    border-left: 1px solid #bbbbbb;
+                }
+                QSlider::groove:horizontal {
+                    border: 1px solid #bbbbbb;
+                    height: 8px;
+                    background: #e0e0e0;
+                    margin: 2px 0;
+                    border-radius: 4px;
+                }
+                QSlider::handle:horizontal {
+                    background: #05B8CC;
+                    border: 1px solid #999999;
+                    width: 18px;
+                    margin: -2px 0;
+                    border-radius: 4px;
+                }
+                QLabel {
+                    color: #333333;
+                }
+                QStatusBar, QLabel#status_bar {
+                    background-color: #e0e0e0;
+                    padding: 4px;
+                    border-radius: 4px;
+                }
+            """,
+            'red': """
+                QMainWindow, QWidget {
+                    background-color: #ffe5e5;
                     color: #330000;
                 }
                 QPushButton {
                     background-color: #ffcccc;
                     border: 1px solid #cc9999;
-                    padding: 5px;
-                    border-radius: 3px;
+                    padding: 6px;
+                    border-radius: 4px;
                 }
                 QPushButton:hover {
                     background-color: #ffaaaa;
@@ -713,27 +902,57 @@ class MainWindow(QMainWindow):
                 QGroupBox {
                     font-weight: bold;
                     border: 2px solid #cc9999;
-                    border-radius: 5px;
-                    margin-top: 1ex;
+                    border-radius: 6px;
+                    margin-top: 1.5ex;
                     padding-top: 10px;
                 }
                 QGroupBox::title {
                     subcontrol-origin: margin;
                     left: 10px;
-                    padding: 0 5px 0 5px;
+                    padding: 0 5px;
                 }
-            """)
-        elif theme_name == 'blue':
-            self.setStyleSheet("""
+                QComboBox {
+                    background-color: #fff0f0;
+                    border: 1px solid #cc9999;
+                    padding: 4px;
+                    border-radius: 4px;
+                }
+                QComboBox::drop-down {
+                    border-left: 1px solid #cc9999;
+                }
+                QSlider::groove:horizontal {
+                    border: 1px solid #cc9999;
+                    height: 8px;
+                    background: #ffcccc;
+                    margin: 2px 0;
+                    border-radius: 4px;
+                }
+                QSlider::handle:horizontal {
+                    background: #ff5555;
+                    border: 1px solid #cc9999;
+                    width: 18px;
+                    margin: -2px 0;
+                    border-radius: 4px;
+                }
+                QLabel {
+                    color: #330000;
+                }
+                QStatusBar, QLabel#status_bar {
+                    background-color: #ffcccc;
+                    padding: 4px;
+                    border-radius: 4px;
+                }
+            """,
+            'blue': """
                 QMainWindow, QWidget {
-                    background-color: #eeeeff;
+                    background-color: #e5e5ff;
                     color: #000033;
                 }
                 QPushButton {
                     background-color: #ccccff;
                     border: 1px solid #9999cc;
-                    padding: 5px;
-                    border-radius: 3px;
+                    padding: 6px;
+                    border-radius: 4px;
                 }
                 QPushButton:hover {
                     background-color: #aaaaff;
@@ -741,27 +960,57 @@ class MainWindow(QMainWindow):
                 QGroupBox {
                     font-weight: bold;
                     border: 2px solid #9999cc;
-                    border-radius: 5px;
-                    margin-top: 1ex;
+                    border-radius: 6px;
+                    margin-top: 1.5ex;
                     padding-top: 10px;
                 }
                 QGroupBox::title {
                     subcontrol-origin: margin;
                     left: 10px;
-                    padding: 0 5px 0 5px;
+                    padding: 0 5px;
                 }
-            """)
-        elif theme_name == 'dark':
-            self.setStyleSheet("""
+                QComboBox {
+                    background-color: #f0f0ff;
+                    border: 1px solid #9999cc;
+                    padding: 4px;
+                    border-radius: 4px;
+                }
+                QComboBox::drop-down {
+                    border-left: 1px solid #9999cc;
+                }
+                QSlider::groove:horizontal {
+                    border: 1px solid #9999cc;
+                    height: 8px;
+                    background: #ccccff;
+                    margin: 2px 0;
+                    border-radius: 4px;
+                }
+                QSlider::handle:horizontal {
+                    background: #5555ff;
+                    border: 1px solid #9999cc;
+                    width: 18px;
+                    margin: -2px 0;
+                    border-radius: 4px;
+                }
+                QLabel {
+                    color: #000033;
+                }
+                QStatusBar, QLabel#status_bar {
+                    background-color: #ccccff;
+                    padding: 4px;
+                    border-radius: 4px;
+                }
+            """,
+            'dark': """
                 QMainWindow, QWidget {
-                    background-color: #333333;
+                    background-color: #2a2a2a;
                     color: #ffffff;
                 }
                 QPushButton {
                     background-color: #555555;
                     border: 1px solid #777777;
-                    padding: 5px;
-                    border-radius: 3px;
+                    padding: 6px;
+                    border-radius: 4px;
                     color: white;
                 }
                 QPushButton:hover {
@@ -770,55 +1019,267 @@ class MainWindow(QMainWindow):
                 QGroupBox {
                     font-weight: bold;
                     border: 2px solid #777777;
-                    border-radius: 5px;
-                    margin-top: 1ex;
+                    border-radius: 6px;
+                    margin-top: 1.5ex;
                     padding-top: 10px;
                     color: white;
                 }
                 QGroupBox::title {
                     subcontrol-origin: margin;
                     left: 10px;
-                    padding: 0 5px 0 5px;
-                    color: white;
-                }
-                QLabel {
+                    padding: 0 5px;
                     color: white;
                 }
                 QComboBox {
-                    background-color: #555555;
-                    color: white;
+                    background-color: #444444;
                     border: 1px solid #777777;
+                    padding: 4px;
+                    border-radius: 4px;
+                    color: white;
                 }
-                QSpinBox {
-                    background-color: #555555;
-                    color: white;
-                    border: 1px solid #777777;
+                QComboBox::drop-down {
+                    border-left: 1px solid #777777;
                 }
                 QSlider::groove:horizontal {
                     border: 1px solid #777777;
                     height: 8px;
-                    background: #555555;
+                    background: #444444;
                     margin: 2px 0;
+                    border-radius: 4px;
                 }
                 QSlider::handle:horizontal {
-                    background: #aaaaaa;
+                    background: #00aaaa;
                     border: 1px solid #777777;
                     width: 18px;
                     margin: -2px 0;
-                    border-radius: 3px;
+                    border-radius: 4px;
                 }
-            """)
-        else:
-            self.setStyleSheet("""
+                QLabel {
+                    color: white;
+                }
+                QStatusBar, QLabel#status_bar {
+                    background-color: #444444;
+                    padding: 4px;
+                    border-radius: 4px;
+                    color: white;
+                }
+                QSpinBox {
+                    background-color: #444444;
+                    border: 1px solid #777777;
+                    padding: 4px;
+                    border-radius: 4px;
+                    color: white;
+                }
+            """,
+            'light': """
                 QMainWindow, QWidget {
+                    background-color: #ffffff;
+                    color: #333333;
+                }
+                QPushButton {
                     background-color: #f0f0f0;
+                    border: 1px solid #cccccc;
+                    padding: 6px;
+                    border-radius: 4px;
+                }
+                QPushButton:hover {
+                    background-color: #e0e0e0;
                 }
                 QGroupBox {
                     font-weight: bold;
+                    border: 2px solid #cccccc;
+                    border-radius: 6px;
+                    margin-top: 1.5ex;
+                    padding-top: 10px;
                 }
-            """)
-        self.start_btn.setStyleSheet("QPushButton { background-color: #4CAF50; color: white; font-weight: bold; }")
-        self.stop_btn.setStyleSheet("QPushButton { background-color: #F44336; color: white; font-weight: bold; }")
+                QGroupBox::title {
+                    subcontrol-origin: margin;
+                    left: 10px;
+                    padding: 0 5px;
+                }
+                QComboBox {
+                    background-color: white;
+                    border: 1px solid #cccccc;
+                    padding: 4px;
+                    border-radius: 4px;
+                }
+                QComboBox::drop-down {
+                    border-left: 1px solid #cccccc;
+                }
+                QSlider::groove:horizontal {
+                    border: 1px solid #cccccc;
+                    height: 8px;
+                    background: #f0f0f0;
+                    margin: 2px 0;
+                    border-radius: 4px;
+                }
+                QSlider::handle:horizontal {
+                    background: #66ccff;
+                    border: 1px solid #cccccc;
+                    width: 18px;
+                    margin: -2px 0;
+                    border-radius: 4px;
+                }
+                QLabel {
+                    color: #333333;
+                }
+                QStatusBar, QLabel#status_bar {
+                    background-color: #f0f0f0;
+                    padding: 4pxrobot:4px;
+                    border-radius: 4px;
+                }
+            """,
+            'purple': """
+                QMainWindow, QWidget {
+                    background-color: #f0e5ff;
+                    color: #330033;
+                }
+                QPushButton {
+                    background-color: #e0ccff;
+                    border: 1px solid #aa88cc;
+                    padding: 6px;
+                    border-radius: 4px;
+                }
+                QPushButton:hover {
+                    background-color: #cc99ff;
+                }
+                QGroupBox {
+                    font-weight: bold;
+                    border: 2px solid #aa88cc;
+                    border-radius: 6px;
+                    margin-top: 1.5ex;
+                    padding-top: 10px;
+                }
+                QGroupBox::title {
+                    subcontrol-origin: margin;
+                    left: 10px;
+                    padding: 0 5px;
+                }
+                QComboBox {
+                    background-color: #f5efff;
+                    border: 1px solid #aa88cc;
+                    padding: 4px;
+                    border-radius: 4px;
+                }
+                QComboBox::drop-down {
+                    border-left: 1px solid #aa88cc;
+                }
+                QSlider::groove:horizontal {
+                    border: 1px solid #aa88cc;
+                    height: 8px;
+                    background: #e0ccff;
+                    margin: 2px 0;
+                    border-radius: 4px;
+                }
+                QSlider::handle:horizontal {
+                    background: #8855cc;
+                    border: 1px solid #aa88cc;
+                    width: 18px;
+                    margin: -2px 0;
+                    border-radius: 4px;
+                }
+                QLabel {
+                    color: #330033;
+                }
+                QStatusBar, QLabel#status_bar {
+                    background-color: #e0ccff;
+                    padding: 4px;
+                    border-radius: 4px;
+                }
+            """,
+            'green': """
+                QMainWindow, QWidget {
+                    background-color: #e5ffe5;
+                    color: #003300;
+                }
+                QPushButton {
+                    background-color: #ccffcc;
+                    border: 1px solid #88cc88;
+                    padding: 6px;
+                    border-radius: 4px;
+                }
+                QPushButton:hover {
+                    background-color: #aaffaa;
+                }
+                QGroupBox {
+                    font-weight: bold;
+                    border: 2px solid #88cc88;
+                    border-radius: 6px;
+                    margin-top: 1.5ex;
+                    padding-top: 10px;
+                }
+                QGroupBox::title {
+                    subcontrol-origin: margin;
+                    left: 10px;
+                    padding: 0 5px;
+                }
+                QComboBox {
+                    background-color: #f0fff0;
+                    border: 1px solid #88cc88;
+                    padding: 4px;
+                    border-radius: 4px;
+                }
+                QComboBox::drop-down {
+                    border-left: 1px solid #88cc88;
+                }
+                QSlider::groove:horizontal {
+                    border: 1px solid #88cc88;
+                    height: 8px;
+                    background: #ccffcc;
+                    margin: 2px 0;
+                    border-radius: 4px;
+                }
+                QSlider::handle:horizontal {
+                    background: #55aa55;
+                    border: 1px solid #88cc88;
+                    width: 18px;
+                    margin: -2px 0;
+                    border-radius: 4px;
+                }
+                QLabel {
+                    color: #003300;
+                }
+                QStatusBar, QLabel#status_bar {
+                    background-color: #ccffcc;
+                    padding: 4px;
+                    border-radius: 4px;
+                }
+            """
+        }
+
+        self.setStyleSheet(stylesheets.get(theme_name, stylesheets['default']))
+        self.volume_bar.setStyleSheet(volume_bar_styles.get(theme_name, volume_bar_styles['default']))
+        self.start_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #4CAF50;
+                color: white;
+                font-weight: bold;
+                padding: 6px;
+                border-radius: 4px;
+                border: 1px solid #388E3C;
+            }
+            QPushButton:hover {
+                background-color: #45A049;
+            }
+        """)
+        self.stop_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #F44336;
+                color: white;
+                font-weight: bold;
+                padding: 6px;
+                border-radius: 4px;
+                border: 1px solid #D32F2F;
+            }
+            QPushButton:hover {
+                background-color: #E53935;
+            }
+        """)
+        
+    def preview_theme(self, theme_name):
+        # Store current theme for potential revert
+        self.current_theme = self.config['theme']
+        self.apply_theme(theme_name)
         
     def populate_accessories(self):
         self.add_accessory_combo.clear()
@@ -858,21 +1319,25 @@ class MainWindow(QMainWindow):
     def update_selected_accessory(self, row):
         if hasattr(self, 'overlay'):
             self.overlay.selected_accessory_index = row
+            self.overlay.update()
     
     def toggle_accessory_drag_mode(self):
         if hasattr(self, 'overlay'):
             self.overlay.set_accessory_drag_mode(not self.overlay.accessory_drag_mode)
             self.move_btn.setText("Disable Accessory Move" if self.overlay.accessory_drag_mode else "Enable Accessory Move")
+            self.overlay.update()
     
     def toggle_accessory_resize_mode(self):
         if hasattr(self, 'overlay'):
             self.overlay.set_accessory_resize_mode(not self.overlay.accessory_resize_mode)
             self.resize_btn.setText("Disable Accessory Resize" if self.overlay.accessory_resize_mode else "Enable Accessory Resize")
+            self.overlay.update()
     
     def toggle_character_resize_mode(self):
         if hasattr(self, 'overlay'):
             self.overlay.set_character_resize_mode(not self.overlay.character_resize_mode)
             self.character_resize_btn.setText("Stop Resize" if self.overlay.character_resize_mode else "Resize Character")
+            self.overlay.update()
     
     def refresh_audio_devices(self):
         self.device_combo.clear()
@@ -998,14 +1463,17 @@ class MainWindow(QMainWindow):
                 self.overlay.static_cache = None
                 self.overlay.update()
                 
-    def save_settings(self):
-        try:
-            self.save_config()
-            self.status_bar.setText(f"Settings saved to {self.mv_pr_path}")
-            QMessageBox.information(self, "Success", f"Settings saved to {self.mv_pr_path}")
-        except Exception as e:
-            self.status_bar.setText(f"Error saving settings: {e}")
-            QMessageBox.critical(self, "Error", f"Failed to save settings: {e}")
+    def open_appearance_settings(self):
+        dialog = AppearanceSettings(self)
+        dialog.exec_()
+        
+    def open_manual(self):
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        manual_path = os.path.join(script_dir, "MV_manual.py")
+        if os.path.exists(manual_path):
+            subprocess.Popen([sys.executable, manual_path])
+        else:
+            QMessageBox.critical(self, "Error", "MV_manual.py not found.")
                 
     def load_settings(self):
         file_path, _ = QFileDialog.getOpenFileName(
@@ -1018,7 +1486,6 @@ class MainWindow(QMainWindow):
                     if key in loaded_config:
                         self.config[key] = loaded_config[key]
                 self.threshold_slider.setValue(self.config['threshold'])
-                self.wave_spin.setValue(self.config['wave_count'])
                 self.update_accessories_list()
                 if 'theme' in loaded_config:
                     self.apply_theme(loaded_config['theme'])
@@ -1032,7 +1499,6 @@ class MainWindow(QMainWindow):
         self.stop_overlay()
         self.save_config()
         event.accept()
-
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)

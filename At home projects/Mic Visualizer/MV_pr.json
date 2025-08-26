@@ -1,5 +1,5 @@
 {
-    "threshold": 200,
+    "threshold": 142,
     "head_color": [
         59,
         59,
@@ -20,14 +20,20 @@
     "window_y": 166,
     "window_width": 900,
     "window_height": 900,
-    "last_device": 1,
-    "theme": "blue",
+    "last_device": 20,
+    "theme": "red",
     "accessories": [
         {
             "name": "tophat",
             "x_offset": -33,
             "y_offset": -191,
             "scale": 0.6697390731349497
+        },
+        {
+            "name": "Mustache",
+            "x_offset": 4,
+            "y_offset": 31,
+            "scale": 0.5053089085295382
         }
     ],
     "character_scale": 0.4958200824856037
