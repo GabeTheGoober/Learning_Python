@@ -1,0 +1,46 @@
+{
+    "threshold": 97,
+    "head_color": [
+        59,
+        59,
+        59
+    ],
+    "mouth_color": [
+        255,
+        0,
+        0
+    ],
+    "wave_color": [
+        255,
+        0,
+        0
+    ],
+    "wave_count": 7,
+    "window_x": 1267,
+    "window_y": 291,
+    "window_width": 900,
+    "window_height": 900,
+    "last_device": 1,
+    "theme": "green",
+    "accessories": [
+        {
+            "name": "tophat",
+            "x_offset": -33,
+            "y_offset": -191,
+            "scale": 0.6697390731349497
+        },
+        {
+            "name": "Mustache",
+            "x_offset": 4,
+            "y_offset": 31,
+            "scale": 0.5053089085295382
+        },
+        {
+            "name": "Tie",
+            "x_offset": 2,
+            "y_offset": 185,
+            "scale": 0.38877918369843323
+        }
+    ],
+    "character_scale": 0.4958200824856037
+}
