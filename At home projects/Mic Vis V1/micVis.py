@@ -20,8 +20,10 @@ import math
 import random
 try:
     import speech_recognition as sr
+    print("Speech recognition library imported successfully")
 except ImportError:
     sr = None
+    print("Speech recognition library not available. Please install with: pip install SpeechRecognition")
 
 if sys.platform == 'win32':
     import ctypes
@@ -168,36 +170,78 @@ class AudioWorker(QThread):
 class SpeechWorker(QThread):
     emotion_signal = pyqtSignal(str)
     error_signal = pyqtSignal(str)
+    status_signal = pyqtSignal(str)
     
     def __init__(self, device_index, srecog, parent=None):
         super().__init__(parent)
         self.device_index = device_index
         self.srecog = srecog
         self.running = False
+        self.recognizer = None
+        self.microphone = None
         
     def run(self):
         if sr is None:
             self.error_signal.emit("Speech recognition library not available. Please install speech_recognition.")
             return
+            
         self.running = True
-        r = sr.Recognizer()
-        mic = sr.Microphone(device_index=self.device_index)
-        with mic as source:
-            r.adjust_for_ambient_noise(source)
-            while self.running:
-                try:
-                    audio = r.listen(source, timeout=2, phrase_time_limit=5)
-                    text = r.recognize_google(audio).lower()
-                    for emotion, words in self.srecog.items():
-                        if any(word in text for word in words):
-                            self.emotion_signal.emit(emotion)
-                            break
-                except sr.WaitTimeoutError:
-                    pass
-                except sr.UnknownValueError:
-                    pass
-                except Exception as e:
-                    self.error_signal.emit(f"Speech recognition error: {e}")
+        self.recognizer = sr.Recognizer()
+        self.recognizer.energy_threshold = 300  # Adjust for better sensitivity
+        self.recognizer.dynamic_energy_threshold = True
+        self.recognizer.pause_threshold = 0.8
+        
+        # Get list of microphone names from SpeechRecognition
+        mic_list = sr.Microphone.list_microphone_names()
+        self.status_signal.emit(f"Available mics: {', '.join(mic_list)}")
+        
+        # Try to find the matching device by name if index doesn't work
+        try:
+            if self.device_index < len(mic_list):
+                self.microphone = sr.Microphone(device_index=self.device_index)
+                self.status_signal.emit(f"Using mic: {mic_list[self.device_index]}")
+            else:
+                self.microphone = sr.Microphone()
+                self.status_signal.emit("Using default microphone")
+        except Exception as e:
+            self.error_signal.emit(f"Microphone initialization error: {e}")
+            self.running = False
+            return
+            
+        # Adjust for ambient noise
+        try:
+            with self.microphone as source:
+                self.recognizer.adjust_for_ambient_noise(source, duration=1)
+                self.status_signal.emit("Adjusted for ambient noise")
+        except Exception as e:
+            self.error_signal.emit(f"Ambient noise adjustment failed: {e}")
+            
+        while self.running:
+            try:
+                # Use a timeout to allow checking self.running frequently
+                with self.microphone as source:
+                    audio = self.recognizer.listen(source, timeout=1, phrase_time_limit=5)
+                
+                text = self.recognizer.recognize_google(audio).lower()
+                self.status_signal.emit(f"Recognized: {text}")
+                
+                for emotion, words in self.srecog.items():
+                    if any(word in text for word in words):
+                        self.emotion_signal.emit(emotion)
+                        self.status_signal.emit(f"Detected emotion: {emotion}")
+                        break
+            except sr.WaitTimeoutError:
+                # Timeout is expected, just continue
+                continue
+            except sr.UnknownValueError:
+                # Speech was unintelligible
+                continue
+            except sr.RequestError as e:
+                self.error_signal.emit(f"Speech recognition API error: {e}")
+                time.sleep(2)  # Wait before retrying
+            except Exception as e:
+                self.error_signal.emit(f"Unexpected error in speech recognition: {e}")
+                time.sleep(1)
     
     def stop(self):
         self.running = False
@@ -610,27 +654,26 @@ class OverlayWindow(QWidget):
             elif mouth_shape == "frown":
                 painter.drawArc(head_center.x() - int(mouth_width/2), head_center.y() + mouth_y_offset - mouth_height, mouth_width, mouth_height * 2, 0, 180 * 16)
         
-        if self.is_speaking:
-            style = self.config.get('wave_style', 'circles')
-            wave_color = QColor(*self.config.get('wave_color', [255, 255, 255]))
-            if style == 'circles':
-                for w in self.waves:
-                    wave_radius = int(w['radius'])
-                    alpha = int(w['alpha'])
-                    if alpha > 0:
-                        wave_color.setAlpha(alpha)
-                        painter.setPen(QPen(wave_color, 2))
-                        painter.setBrush(Qt.NoBrush)
-                        painter.drawEllipse(head_center, wave_radius, wave_radius)
-            elif style == 'dots':
-                for d in self.dots:
-                    alpha = int(d['alpha'])
-                    if alpha > 0:
-                        wave_color.setAlpha(alpha)
-                        painter.setBrush(wave_color)
-                        painter.setPen(Qt.NoPen)
-                        s = d['size']
-                        painter.drawEllipse(int(head_center.x() + d['x'] - s/2), int(head_center.y() + d['y'] - s/2), int(s), int(s))
+        style = self.config.get('wave_style', 'circles')
+        wave_color = QColor(*self.config.get('wave_color', [255, 255, 255]))
+        if style == 'circles':
+            for w in self.waves:
+                wave_radius = int(w['radius'])
+                alpha = int(w['alpha'])
+                if alpha > 0:
+                    wave_color.setAlpha(alpha)
+                    painter.setPen(QPen(wave_color, 2))
+                    painter.setBrush(Qt.NoBrush)
+                    painter.drawEllipse(head_center, wave_radius, wave_radius)
+        elif style == 'dots':
+            for d in self.dots:
+                alpha = int(d['alpha'])
+                if alpha > 0:
+                    wave_color.setAlpha(alpha)
+                    painter.setBrush(wave_color)
+                    painter.setPen(Qt.NoPen)
+                    s = d['size']
+                    painter.drawEllipse(int(head_center.x() + d['x'] - s/2), int(head_center.y() + d['y'] - s/2), int(s), int(s))
 
         for i, acc in enumerate(self.config.get('accessories', [])):
             accessory_name = acc.get('name')
@@ -1713,16 +1756,30 @@ class MainWindow(QMainWindow):
         self.audio_worker.volume_signal.connect(self.update_volume)
         self.audio_worker.error_signal.connect(self.handle_audio_error)
         self.audio_worker.start()
+        
         if self.speech_rec_check.isChecked():
             self.speech_worker = SpeechWorker(device_index, self.srecog)
             self.speech_worker.emotion_signal.connect(self.overlay.set_emotion)
-            self.speech_worker.error_signal.connect(self.handle_audio_error)
+            self.speech_worker.error_signal.connect(self.handle_speech_error)  # New method
+            self.speech_worker.status_signal.connect(self.handle_speech_status)  # New signal
             self.speech_worker.start()
+            self.status_bar.setText("Speech recognition started...")
+        
         self.start_btn.setEnabled(False)
         self.stop_btn.setEnabled(True)
         self.device_combo.setEnabled(False)
         self.calibrate_btn.setEnabled(False)
         self.status_bar.setText("Overlay active. Speak to see the character respond.")
+        
+    def handle_speech_error(self, error_msg):
+        # Show speech errors in status bar without stopping the overlay
+        self.status_bar.setText(f"Speech error: {error_msg}")
+        
+    def handle_speech_status(self, status_msg):
+        # Show speech recognition status messages
+        if len(status_msg) > 60:  # Truncate long messages
+            status_msg = status_msg[:57] + "..."
+        self.status_bar.setText(status_msg)
         
     def stop_overlay(self):
         if self.audio_worker:

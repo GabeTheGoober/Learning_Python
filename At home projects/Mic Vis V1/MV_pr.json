@@ -16,13 +16,13 @@
         0
     ],
     "wave_count": 7,
-    "wave_style": "circles",
+    "wave_style": "dots",
     "window_x": 1267,
     "window_y": 291,
     "window_width": 900,
     "window_height": 900,
     "last_device": 1,
-    "theme": "green",
+    "theme": "purple",
     "accessories": [
         {
             "name": "tophat",
