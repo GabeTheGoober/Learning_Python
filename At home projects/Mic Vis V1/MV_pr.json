@@ -1,9 +1,9 @@
 {
-    "threshold": 97,
+    "threshold": 2000,
     "head_color": [
-        59,
-        59,
-        59
+        112,
+        112,
+        112
     ],
     "mouth_color": [
         255,
@@ -15,14 +15,14 @@
         0,
         0
     ],
-    "wave_count": 7,
+    "wave_count": 2,
     "wave_style": "dots",
     "window_x": 1267,
     "window_y": 291,
     "window_width": 900,
     "window_height": 900,
     "last_device": 1,
-    "theme": "purple",
+    "theme": "green",
     "accessories": [
         {
             "name": "tophat",

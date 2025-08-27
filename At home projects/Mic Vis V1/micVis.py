@@ -4,6 +4,7 @@ import audioop
 import pyaudio
 import json
 import os
+import shutil
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                              QHBoxLayout, QPushButton, QComboBox, QLabel, 
                              QSlider, QMessageBox, QProgressBar, QCheckBox,
@@ -11,7 +12,7 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QMenu, QToolButton, QStyleFactory, QListWidget,
                              QDialog, QSizePolicy, QTextBrowser)
 from PyQt5.QtCore import Qt, QTimer, QThread, pyqtSignal, QSettings, QPoint, QRect
-from PyQt5.QtGui import QPainter, QColor, QPen, QPixmap, QImage, QMouseEvent, QFont
+from PyQt5.QtGui import QPainter, QColor, QPen, QPixmap, QImage, QMouseEvent, QFont, QIcon
 import threading
 import time
 from collections import deque
@@ -431,7 +432,7 @@ class OverlayWindow(QWidget):
                 if not self.waves or self.waves[-1]['radius'] > head_radius + 20:
                     self.waves.append({'radius': head_radius, 'alpha': 150})
             for w in self.waves[:]:
-                w['radius'] += 3
+                w['radius1964 += 3']
                 w['alpha'] -= 8
                 if w['alpha'] <= 0:
                     self.waves.remove(w)
@@ -724,6 +725,7 @@ class FaceConfigDialog(QDialog):
             hlay = QHBoxLayout()
             hlay.addWidget(QLabel(name + ":"))
             slider = QSlider(Qt.Horizontal)
+            slider.setFixedWidth(200)  # Set fixed width to make all sliders the same size
             slider.setMinimum(minv)
             slider.setMaximum(maxv)
             slider.setValue(valv)
@@ -841,9 +843,18 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("MicVis")
         self.setGeometry(100, 100, 500, 650)
         
+        # Set window icon using micVisIcon.png
+        self.mv_pr_path, self.accessories_dir, self.srecog_path = find_or_create_mv_pr()
+        icon_path = os.path.join(self.accessories_dir, "micVisIcon.png")
+        if os.path.exists(icon_path):
+            self.setWindowIcon(QIcon(icon_path))
+        else:
+            print(f"Warning: Icon file not found at {icon_path}, using default icon")
+
         self.audio_worker = None
         self.speech_worker = None
         self.audio_devices = []
+        self.manual_process = None  # Track manual subprocess
         
         self.mv_pr_path, self.accessories_dir, self.srecog_path = find_or_create_mv_pr()
         self.config = self.load_config()
@@ -983,8 +994,8 @@ class MainWindow(QMainWindow):
         threshold_layout = QHBoxLayout()
         threshold_layout.addWidget(QLabel("Sensitivity:"))
         self.threshold_slider = QSlider(Qt.Horizontal)
-        self.threshold_slider.setMinimum(50)
-        self.threshold_slider.setMaximum(1000)
+        self.threshold_slider.setMinimum(0)
+        self.threshold_slider.setMaximum(2000)
         self.threshold_slider.setValue(self.config['threshold'])
         self.threshold_slider.setTickPosition(QSlider.TicksBelow)
         self.threshold_slider.setTickInterval(100)
@@ -1018,6 +1029,16 @@ class MainWindow(QMainWindow):
         add_btn = QPushButton("Add")
         add_btn.clicked.connect(self.add_accessory)
         add_layout.addWidget(add_btn)
+        # Add new "Add Accessory" button
+        import_accessory_btn = QPushButton("Add Image")
+        import_accessory_btn.clicked.connect(self.import_accessory_image)
+        add_layout.addWidget(import_accessory_btn)
+        # Add new "Refresh Accessories list" button
+        refresh_accessories_btn = QPushButton("⟳")
+        refresh_accessories_btn.setToolTip("Refresh Accessories list")
+        refresh_accessories_btn.clicked.connect(self.refresh_accessories)
+        refresh_accessories_btn.setFixedWidth(30)
+        add_layout.addWidget(refresh_accessories_btn)
         acc_layout.addLayout(add_layout)
         self.accessories_list = QListWidget()
         self.accessories_list.currentRowChanged.connect(self.update_selected_accessory)
@@ -1363,7 +1384,9 @@ class MainWindow(QMainWindow):
                 }
                 QGroupBox {
                     font-weight: bold;
-                    border: 2px solid #777777;
+                    border: 2px solid #
+
+                    777777;
                     border-radius: 6px;
                     margin-top: 1.5ex;
                     padding-top: 10px;
@@ -1651,6 +1674,39 @@ class MainWindow(QMainWindow):
             if hasattr(self, 'overlay'):
                 self.overlay.update()
     
+    def import_accessory_image(self):
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "Select Accessory Image", "", "PNG Files (*.png)")
+        if file_path:
+            try:
+                file_name = os.path.basename(file_path)
+                if not file_name.lower().endswith('.png'):
+                    QMessageBox.warning(self, "Invalid File", "Please select a PNG file.")
+                    return
+                dest_path = os.path.join(self.accessories_dir, file_name)
+                if os.path.exists(dest_path):
+                    QMessageBox.warning(self, "File Exists", f"Accessory {file_name} already exists.")
+                    return
+                shutil.copy(file_path, dest_path)
+                self.populate_accessories()
+                name = os.path.splitext(file_name)[0]
+                self.config['accessories'].append({'name': name, 'x_offset': 0, 'y_offset': 0, 'scale': 1.0})
+                self.update_accessories_list()
+                if hasattr(self, 'overlay'):
+                    self.overlay.accessory_images.clear()  # Clear cache to reload new image
+                    self.overlay.update()
+                self.status_bar.setText(f"Imported accessory: {file_name}")
+            except Exception as e:
+                self.status_bar.setText(f"Error importing accessory: {e}")
+                QMessageBox.critical(self, "Error", f"Failed to import accessory: {e}")
+    
+    def refresh_accessories(self):
+        self.populate_accessories()
+        if hasattr(self, 'overlay'):
+            self.overlay.accessory_images.clear()  # Clear cache to reload images
+            self.overlay.update()
+        self.status_bar.setText("Accessories list refreshed.")
+    
     def remove_accessory(self):
         row = self.accessories_list.currentRow()
         if row >= 0:
@@ -1692,13 +1748,16 @@ class MainWindow(QMainWindow):
     def refresh_audio_devices(self):
         self.device_combo.clear()
         self.audio_devices = []
+        excluded_keywords = ["stereo mix", "loopback", "virtual audio", "virtual", "software", "wasapi", "what u hear"]  # Common virtual/non-mic names
         try:
             p = pyaudio.PyAudio()
             for i in range(p.get_device_count()):
                 device_info = p.get_device_info_by_index(i)
                 if device_info['maxInputChannels'] > 0:
-                    self.audio_devices.append((i, device_info['name']))
-                    self.device_combo.addItem(device_info['name'], i)
+                    name_lower = device_info['name'].lower()
+                    if not any(keyword in name_lower for keyword in excluded_keywords):
+                        self.audio_devices.append((i, device_info['name']))
+                        self.device_combo.addItem(device_info['name'], i)
             p.terminate()
             if self.config['last_device'] is not None:
                 index = self.device_combo.findData(self.config['last_device'])
@@ -1706,11 +1765,11 @@ class MainWindow(QMainWindow):
                     self.device_combo.setCurrentIndex(index)
             if not self.audio_devices:
                 self.start_btn.setEnabled(False)
-                self.status_bar.setText("No audio input devices found.")
-                QMessageBox.warning(self, "No Devices", "No audio input devices found.")
+                self.status_bar.setText("No microphone devices found.")
+                QMessageBox.warning(self, "No Devices", "No microphone devices found.")
             else:
                 self.start_btn.setEnabled(True)
-                self.status_bar.setText(f"Found {len(self.audio_devices)} audio devices.")
+                self.status_bar.setText(f"Found {len(self.audio_devices)} microphone devices.")
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to enumerate audio devices: {e}")
             self.status_bar.setText("Error enumerating audio devices.")
@@ -1877,7 +1936,10 @@ class MainWindow(QMainWindow):
         script_dir = os.path.dirname(os.path.abspath(__file__))
         manual_path = os.path.join(script_dir, "MV_manual.py")
         if os.path.exists(manual_path):
-            subprocess.Popen([sys.executable, manual_path])
+            if self.manual_process and self.manual_process.poll() is None:
+                self.manual_process.terminate()  # Close the first manual if open
+                self.manual_process.wait()  # Wait for termination
+            self.manual_process = subprocess.Popen([sys.executable, manual_path])
         else:
             QMessageBox.critical(self, "Error", "MV_manual.py not found.")
                 
@@ -1903,6 +1965,8 @@ class MainWindow(QMainWindow):
                 QMessageBox.critical(self, "Error", f"Failed to load settings: {e}")
                 
     def closeEvent(self, event):
+        if self.manual_process and self.manual_process.poll() is None:
+            self.manual_process.terminate()
         event.accept()
 
 if __name__ == "__main__":
