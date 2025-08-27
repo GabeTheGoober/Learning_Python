@@ -16,14 +16,21 @@ import threading
 import time
 from collections import deque
 import subprocess
+import math
+import random
+try:
+    import speech_recognition as sr
+except ImportError:
+    sr = None
 
 if sys.platform == 'win32':
     import ctypes
 
-# Function to find or create the MV_pr.json file and MV_accessories folder
+# Function to find or create the MV_pr.json file, SRecog.json, and MV_accessories folder
 def find_or_create_mv_pr():
     script_dir = os.path.dirname(os.path.abspath(__file__))
     target_filename = "MV_pr.json"
+    srecog_filename = "SRecog.json"
     
     # Create MV_accessories folder if it doesn't exist
     accessories_dir = os.path.join(script_dir, "MV_accessories")
@@ -43,6 +50,7 @@ def find_or_create_mv_pr():
             'mouth_color': [255, 0, 0],
             'wave_color': [255, 255, 255],
             'wave_count': 5,
+            'wave_style': 'circles',
             'window_x': 100,
             'window_y': 100,
             'window_width': 800,
@@ -50,7 +58,16 @@ def find_or_create_mv_pr():
             'last_device': None,
             'theme': 'default',
             'accessories': [],
-            'character_scale': 1.0
+            'character_scale': 1.0,
+            'speech_rec': False,
+            'face_params': {
+                'squint_freq_threshold': 200,
+                'squint_amount': 0.8,
+                'enlarge_volume_threshold_mult': 2.0,
+                'enlarge_amount': 0.5,
+                'blink_interval': 100,
+                'mouth_multiplier': 1.0
+            }
         }
         try:
             with open(file_path, 'w') as f:
@@ -58,10 +75,25 @@ def find_or_create_mv_pr():
         except Exception as e:
             print(f"Error creating default config: {e}")
     
-    return file_path, accessories_dir
+    # Check for SRecog.json
+    srecog_path = os.path.join(script_dir, srecog_filename)
+    if not os.path.exists(srecog_path):
+        default_srecog = {
+            "happy": ["happy", "joy", "great", "awesome"],
+            "sad": ["sad", "bad", "terrible", "sorry"],
+            "angry": ["angry", "mad", "furious", "hate"],
+            "surprised": ["wow", "surprise", "amazing", "shocking"]
+        }
+        try:
+            with open(srecog_path, 'w') as f:
+                json.dump(default_srecog, f, indent=4)
+        except Exception as e:
+            print(f"Error creating SRecog.json: {e}")
+    
+    return file_path, accessories_dir, srecog_path
 
 class AudioWorker(QThread):
-    volume_signal = pyqtSignal(int)
+    volume_signal = pyqtSignal(int, float)
     error_signal = pyqtSignal(str)
     
     def __init__(self, device_index, parent=None):
@@ -93,7 +125,13 @@ class AudioWorker(QThread):
                 try:
                     data = self.stream.read(CHUNK, exception_on_overflow=False)
                     rms = audioop.rms(data, 2)
-                    self.volume_signal.emit(rms)
+                    dominant_freq = 0.0
+                    if rms > self.threshold:
+                        data_np = np.frombuffer(data, dtype=np.int16)
+                        spectrum = np.abs(np.fft.rfft(data_np))
+                        freqs = np.fft.rfftfreq(len(data_np), 1 / RATE)
+                        dominant_freq = freqs[np.argmax(spectrum)]
+                    self.volume_signal.emit(rms, dominant_freq)
                 except OSError as e:
                     self.error_signal.emit(f"Audio device error: {e}")
                     break
@@ -119,14 +157,51 @@ class AudioWorker(QThread):
         
     def stop(self):
         self.running = False
-        # Give the thread a moment to exit gracefully
         time.sleep(0.1)
         self.cleanup()
         if self.isRunning():
-            self.wait(1000)  # Wait up to 1 second for thread to finish
+            self.wait(1000)
             
     def set_threshold(self, value):
         self.threshold = value
+
+class SpeechWorker(QThread):
+    emotion_signal = pyqtSignal(str)
+    error_signal = pyqtSignal(str)
+    
+    def __init__(self, device_index, srecog, parent=None):
+        super().__init__(parent)
+        self.device_index = device_index
+        self.srecog = srecog
+        self.running = False
+        
+    def run(self):
+        if sr is None:
+            self.error_signal.emit("Speech recognition library not available. Please install speech_recognition.")
+            return
+        self.running = True
+        r = sr.Recognizer()
+        mic = sr.Microphone(device_index=self.device_index)
+        with mic as source:
+            r.adjust_for_ambient_noise(source)
+            while self.running:
+                try:
+                    audio = r.listen(source, timeout=2, phrase_time_limit=5)
+                    text = r.recognize_google(audio).lower()
+                    for emotion, words in self.srecog.items():
+                        if any(word in text for word in words):
+                            self.emotion_signal.emit(emotion)
+                            break
+                except sr.WaitTimeoutError:
+                    pass
+                except sr.UnknownValueError:
+                    pass
+                except Exception as e:
+                    self.error_signal.emit(f"Speech recognition error: {e}")
+    
+    def stop(self):
+        self.running = False
+        self.wait(1000)
 
 class OverlayWindow(QWidget):
     def __init__(self, config, accessories_dir):
@@ -147,6 +222,17 @@ class OverlayWindow(QWidget):
         self.mouth_openness = 0
         self.eye_state = 0
         self.blink_timer = 0
+        self.current_freq = 0.0
+        self.current_emotion = "neutral"
+        self.emotion_end_time = 0
+        self.face_params = self.config.get('face_params', {
+            'squint_freq_threshold': 200,
+            'squint_amount': 0.8,
+            'enlarge_volume_threshold_mult': 2.0,
+            'enlarge_amount': 0.5,
+            'blink_interval': 100,
+            'mouth_multiplier': 1.0
+        })
         self.animation_timer = QTimer(self)
         self.animation_timer.timeout.connect(self.update_animation)
         self.animation_timer.start(50)
@@ -169,12 +255,14 @@ class OverlayWindow(QWidget):
         self.resize_corner = None
         self.drag_position = QPoint()
         
+        self.waves = []
+        self.dots = []
+        
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
             head_center = self.rect().center()
             head_radius = min(self.width(), self.height()) * 0.4 * self.config.get('character_scale', 1.0)
             
-            # Check for character resize
             if self.character_resize_mode:
                 handle_size = 10
                 head_width = int(head_radius * 2.0)
@@ -194,7 +282,6 @@ class OverlayWindow(QWidget):
                         event.accept()
                         return
             
-            # Check for accessory resize or drag
             if self.accessory_drag_mode and self.selected_accessory_index >= 0:
                 acc = self.config.get('accessories', [])[self.selected_accessory_index]
                 accessory_image = self.load_accessory_image(acc['name'])
@@ -280,24 +367,61 @@ class OverlayWindow(QWidget):
         event.accept()
         
     def update_animation(self):
-        target_openness = min(self.volume_level / 1000, 1.0) if self.is_speaking else 0
+        target_openness = min(self.volume_level / 1000, 1.0) * self.face_params['mouth_multiplier'] if self.is_speaking else 0
         self.mouth_openness = 0.7 * self.mouth_openness + 0.3 * target_openness
         self.blink_timer += 1
-        if self.blink_timer > 100:
+        if self.blink_timer > self.face_params['blink_interval']:
             self.eye_state = 2
-            if self.blink_timer > 103:
+            if self.blink_timer > self.face_params['blink_interval'] + 3:
                 self.blink_timer = 0
                 self.eye_state = 0
-        elif self.blink_timer > 97:
+        elif self.blink_timer > self.face_params['blink_interval'] - 3:
             self.eye_state = 1
+        if time.time() > self.emotion_end_time:
+            self.current_emotion = "neutral"
+
+        head_radius = min(self.width(), self.height()) * 0.4 * self.config.get('character_scale', 1.0)
+        style = self.config.get('wave_style', 'circles')
+        if style == 'circles':
+            if self.is_speaking:
+                if not self.waves or self.waves[-1]['radius'] > head_radius + 20:
+                    self.waves.append({'radius': head_radius, 'alpha': 150})
+            for w in self.waves[:]:
+                w['radius'] += 3
+                w['alpha'] -= 8
+                if w['alpha'] <= 0:
+                    self.waves.remove(w)
+        elif style == 'dots':
+            if self.is_speaking:
+                num_dots = int(self.mouth_openness * 10) + 1
+                for _ in range(num_dots):
+                    angle = math.radians(random.uniform(0, 360))
+                    dist = head_radius * (1 + random.uniform(0, 0.2))
+                    speed = random.uniform(2, 5)
+                    dx = math.cos(angle) * speed
+                    dy = math.sin(angle) * speed
+                    self.dots.append({'x': math.cos(angle) * dist, 'y': math.sin(angle) * dist, 'dx': dx, 'dy': dy, 'alpha': 255, 'size': random.uniform(3, 8)})
+            for d in self.dots[:]:
+                d['x'] += d['dx']
+                d['y'] += d['dy']
+                d['alpha'] -= 15
+                if d['alpha'] <= 0 or (d['x']**2 + d['y']**2 > (head_radius * 2)**2):
+                    self.dots.remove(d)
+
         self.update()
         
-    def set_volume(self, volume):
+    def set_volume(self, volume, freq=0.0):
         self.volume_level = volume
         self.is_speaking = volume > self.threshold
+        if self.is_speaking:
+            self.current_freq = self.current_freq * 0.7 + freq * 0.3
         
     def set_threshold(self, threshold):
         self.threshold = threshold
+        
+    def set_emotion(self, emotion):
+        self.current_emotion = emotion
+        self.emotion_end_time = time.time() + 5
         
     def set_accessory_drag_mode(self, enabled):
         self.accessory_drag_mode = enabled
@@ -367,16 +491,6 @@ class OverlayWindow(QWidget):
         painter.setPen(Qt.NoPen)
         painter.drawEllipse(head_center, int(head_radius), int(head_radius))
         
-        eye_offset_x = int(head_radius * 0.3)
-        eye_offset_y = int(-head_radius * 0.2)
-        eye_radius = int(head_radius * 0.15)
-        
-        painter.setBrush(Qt.white)
-        painter.drawEllipse(head_center.x() - eye_offset_x, head_center.y() + eye_offset_y, 
-                           eye_radius, eye_radius)
-        painter.drawEllipse(head_center.x() + eye_offset_x, head_center.y() + eye_offset_y, 
-                           eye_radius, eye_radius)
-        
         if self.character_resize_mode:
             head_width = int(head_radius * 2.0)
             head_x = head_center.x() - head_width // 2
@@ -399,44 +513,124 @@ class OverlayWindow(QWidget):
         
         eye_offset_x = int(head_radius * 0.3)
         eye_offset_y = int(-head_radius * 0.2)
-        eye_radius = int(head_radius * 0.15)
+        eye_scale = 1.0
+        enlarge_threshold = self.threshold * self.face_params['enlarge_volume_threshold_mult']
+        if self.is_speaking and self.volume_level > enlarge_threshold:
+            eye_scale += min(self.face_params['enlarge_amount'], (self.volume_level - enlarge_threshold) / 2000)
+        eye_radius = int(head_radius * 0.15 * eye_scale)
         pupil_radius = int(eye_radius * 0.5)
         
+        squint_factor = 0.0
+        if self.current_freq > 0 and self.is_speaking:
+            if self.current_freq < self.face_params['squint_freq_threshold']:
+                squint_factor = (self.face_params['squint_freq_threshold'] - self.current_freq) / self.face_params['squint_freq_threshold'] * self.face_params['squint_amount']
+        
+        eye_rx = eye_radius
+        eye_ry = int(eye_radius * (1 - squint_factor))
+        pupil_rx = pupil_radius
+        pupil_ry = int(pupil_radius * (1 - squint_factor))
+        
+        eye_center_left_x = head_center.x() - eye_offset_x
+        eye_center_right_x = head_center.x() + eye_offset_x
+        eye_center_y = head_center.y() + eye_offset_y
+        
+        # Apply emotion modifications
+        mouth_shape = "ellipse"
+        draw_eyebrows = False
+        brow_slant = 0
+        if self.current_emotion == "happy":
+            mouth_shape = "smile"
+            eye_scale *= 1.1
+        elif self.current_emotion == "sad":
+            mouth_shape = "frown"
+            squint_factor = max(squint_factor, 0.3)
+        elif self.current_emotion == "angry":
+            draw_eyebrows = True
+            brow_slant = int(head_radius * 0.1)
+            squint_factor = max(squint_factor, 0.5)
+        elif self.current_emotion == "surprised":
+            eye_scale *= 1.5
+            self.mouth_openness = 0.8
+            mouth_shape = "ellipse"
+        
+        # Recalculate with emotions
+        eye_radius = int(head_radius * 0.15 * eye_scale)
+        eye_ry = int(eye_radius * (1 - squint_factor))
+        pupil_radius = int(eye_radius * 0.5)
+        pupil_ry = int(pupil_radius * (1 - squint_factor))
+        
+        # Draw white parts of eyes
+        painter.setBrush(Qt.white)
+        painter.setPen(Qt.NoPen)
+        painter.drawEllipse(int(eye_center_left_x - eye_rx), int(eye_center_y - eye_ry), int(2 * eye_rx), int(2 * eye_ry))
+        painter.drawEllipse(int(eye_center_right_x - eye_rx), int(eye_center_y - eye_ry), int(2 * eye_rx), int(2 * eye_ry))
+        
+        # Draw pupils
         painter.setBrush(Qt.black)
         if self.eye_state == 0:
-            painter.drawEllipse(head_center.x() - eye_offset_x, head_center.y() + eye_offset_y, 
-                               pupil_radius, pupil_radius)
-            painter.drawEllipse(head_center.x() + eye_offset_x, head_center.y() + eye_offset_y, 
-                               pupil_radius, pupil_radius)
+            painter.drawEllipse(int(eye_center_left_x - pupil_rx), int(eye_center_y - pupil_ry), int(2 * pupil_rx), int(2 * pupil_ry))
+            painter.drawEllipse(int(eye_center_right_x - pupil_rx), int(eye_center_y - pupil_ry), int(2 * pupil_rx), int(2 * pupil_ry))
         elif self.eye_state == 1:
-            half_pupil_height = int(pupil_radius * 0.5)
-            painter.drawEllipse(head_center.x() - eye_offset_x, head_center.y() + eye_offset_y + int(half_pupil_height/2), 
-                               pupil_radius, half_pupil_height)
-            painter.drawEllipse(head_center.x() + eye_offset_x, head_center.y() + eye_offset_y + int(half_pupil_height/2), 
-                               pupil_radius, half_pupil_height)
+            half_pupil_ry = pupil_ry / 2
+            shift = int(half_pupil_ry / 2)
+            painter.drawEllipse(int(eye_center_left_x - pupil_rx), int(eye_center_y - half_pupil_ry + shift), int(2 * pupil_rx), int(2 * half_pupil_ry))
+            painter.drawEllipse(int(eye_center_right_x - pupil_rx), int(eye_center_y - half_pupil_ry + shift), int(2 * pupil_rx), int(2 * half_pupil_ry))
+        
+        # Draw eyebrows if angry
+        if draw_eyebrows:
+            painter.setPen(QPen(Qt.black, int(head_radius * 0.05), Qt.SolidLine, Qt.RoundCap))
+            brow_length = int(eye_radius * 1.2)
+            brow_y = eye_center_y - eye_ry - int(head_radius * 0.1)
+            # Left eyebrow: \ 
+            painter.drawLine(int(eye_center_left_x - brow_length / 2), brow_y - brow_slant, int(eye_center_left_x + brow_length / 2), brow_y + brow_slant)
+            # Right eyebrow: /
+            painter.drawLine(int(eye_center_right_x - brow_length / 2), brow_y + brow_slant, int(eye_center_right_x + brow_length / 2), brow_y - brow_slant)
         
         mouth_width = int(head_radius * 0.7)
         mouth_height = int(head_radius * 0.4 * self.mouth_openness)
         mouth_y_offset = int(head_radius * 0.3)
         
+        if self.current_emotion == "surprised":
+            mouth_width = int(mouth_width * 0.5)
+            mouth_height = int(mouth_height * 1.2)
+        
         mouth_color = QColor(*self.config.get('mouth_color', [255, 0, 0]))
-        painter.setBrush(mouth_color)
-        painter.drawEllipse(head_center.x() - int(mouth_width/2), 
-                           head_center.y() + mouth_y_offset, 
-                           mouth_width, mouth_height)
+        if mouth_shape == "ellipse":
+            painter.setBrush(mouth_color)
+            painter.setPen(Qt.NoPen)
+            painter.drawEllipse(head_center.x() - int(mouth_width/2), 
+                               head_center.y() + mouth_y_offset, 
+                               mouth_width, mouth_height)
+        else:
+            painter.setBrush(Qt.NoBrush)
+            pen = QPen(mouth_color, int(head_radius * 0.05), Qt.SolidLine, Qt.RoundCap)
+            painter.setPen(pen)
+            if mouth_shape == "smile":
+                painter.drawArc(head_center.x() - int(mouth_width/2), head_center.y() + mouth_y_offset - mouth_height, mouth_width, mouth_height * 2, 180 * 16, -180 * 16)
+            elif mouth_shape == "frown":
+                painter.drawArc(head_center.x() - int(mouth_width/2), head_center.y() + mouth_y_offset - mouth_height, mouth_width, mouth_height * 2, 0, 180 * 16)
         
         if self.is_speaking:
-            wave_count = self.config.get('wave_count', 5)
-            max_wave_radius = int(head_radius * 1.5)
-            wave_spread = int((max_wave_radius - head_radius) / wave_count)
+            style = self.config.get('wave_style', 'circles')
             wave_color = QColor(*self.config.get('wave_color', [255, 255, 255]))
-            for i in range(wave_count):
-                wave_radius = int(head_radius + wave_spread * (i + 1))
-                alpha = 150 - (i * 25)
-                wave_color.setAlpha(alpha)
-                painter.setPen(QPen(wave_color, 2))
-                painter.setBrush(Qt.NoBrush)
-                painter.drawEllipse(head_center, wave_radius, wave_radius)
+            if style == 'circles':
+                for w in self.waves:
+                    wave_radius = int(w['radius'])
+                    alpha = int(w['alpha'])
+                    if alpha > 0:
+                        wave_color.setAlpha(alpha)
+                        painter.setPen(QPen(wave_color, 2))
+                        painter.setBrush(Qt.NoBrush)
+                        painter.drawEllipse(head_center, wave_radius, wave_radius)
+            elif style == 'dots':
+                for d in self.dots:
+                    alpha = int(d['alpha'])
+                    if alpha > 0:
+                        wave_color.setAlpha(alpha)
+                        painter.setBrush(wave_color)
+                        painter.setPen(Qt.NoPen)
+                        s = d['size']
+                        painter.drawEllipse(int(head_center.x() + d['x'] - s/2), int(head_center.y() + d['y'] - s/2), int(s), int(s))
 
         for i, acc in enumerate(self.config.get('accessories', [])):
             accessory_name = acc.get('name')
@@ -465,6 +659,61 @@ class OverlayWindow(QWidget):
                         for x, y in corners:
                             painter.drawEllipse(x, y, handle_size, handle_size)
                 painter.drawImage(hat_x, hat_y, scaled_accessory)
+
+class FaceConfigDialog(QDialog):
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.parent = parent
+        self.setWindowTitle("Face Configuration")
+        layout = QVBoxLayout(self)
+        
+        self.sliders = {}
+        params = [
+            ("Squint Freq Threshold", 50, 500, self.parent.config['face_params'].get('squint_freq_threshold', 200)),
+            ("Squint Amount", 1, 10, int(self.parent.config['face_params'].get('squint_amount', 0.8) * 10)),
+            ("Enlarge Vol Threshold Mult", 10, 40, int(self.parent.config['face_params'].get('enlarge_volume_threshold_mult', 2.0) * 10)),
+            ("Enlarge Amount", 1, 10, int(self.parent.config['face_params'].get('enlarge_amount', 0.5) * 10)),
+            ("Blink Interval", 50, 200, self.parent.config['face_params'].get('blink_interval', 100)),
+            ("Mouth Multiplier", 5, 20, int(self.parent.config['face_params'].get('mouth_multiplier', 1.0) * 10)),
+        ]
+        
+        for name, minv, maxv, valv in params:
+            hlay = QHBoxLayout()
+            hlay.addWidget(QLabel(name + ":"))
+            slider = QSlider(Qt.Horizontal)
+            slider.setMinimum(minv)
+            slider.setMaximum(maxv)
+            slider.setValue(valv)
+            hlay.addWidget(slider)
+            is_float = 'Amount' in name or 'Mult' in name or 'Multiplier' in name
+            label = QLabel(str(valv / 10 if is_float else valv))
+            hlay.addWidget(label)
+            slider.valueChanged.connect(lambda v, l=label, f=is_float: l.setText(str(v / 10 if f else v)))
+            key = name.lower().replace(' ', '_').replace('vol', 'volume')
+            self.sliders[key] = slider
+            layout.addLayout(hlay)
+        
+        btn_layout = QHBoxLayout()
+        apply_btn = QPushButton("Apply")
+        apply_btn.clicked.connect(self.apply_changes)
+        btn_layout.addWidget(apply_btn)
+        close_btn = QPushButton("Close")
+        close_btn.clicked.connect(self.close)
+        btn_layout.addWidget(close_btn)
+        layout.addLayout(btn_layout)
+    
+    def apply_changes(self):
+        for key, slider in self.sliders.items():
+            val = slider.value()
+            if 'amount' in key or 'mult' in key or 'multiplier' in key:
+                val /= 10
+            self.parent.config['face_params'][key] = val
+        if hasattr(self.parent, 'overlay'):
+            self.parent.overlay.face_params = self.parent.config['face_params']
+            self.parent.overlay.static_cache = None
+            self.parent.overlay.update()
+        self.parent.save_config()
+        self.close()
 
 class AppearanceSettings(QDialog):
     def __init__(self, parent):
@@ -499,6 +748,15 @@ class AppearanceSettings(QDialog):
         wave_layout.addStretch()
         layout.addLayout(wave_layout)
 
+        # Wave style
+        style_layout = QHBoxLayout()
+        style_layout.addWidget(QLabel("Wave Style:"))
+        self.style_combo = QComboBox()
+        self.style_combo.addItems(['Circles', 'Dots'])
+        self.style_combo.setCurrentText(parent.config.get('wave_style', 'circles').capitalize())
+        style_layout.addWidget(self.style_combo)
+        layout.addLayout(style_layout)
+
         # Colors
         color_layout = QHBoxLayout()
         head_color_btn = QPushButton("Head Color")
@@ -530,6 +788,7 @@ class AppearanceSettings(QDialog):
 
     def apply_changes(self):
         self.parent.apply_theme(self.theme_combo.currentText().lower())
+        self.parent.config['wave_style'] = self.style_combo.currentText().lower()
         self.parent.save_config()
         self.close()
 
@@ -540,10 +799,12 @@ class MainWindow(QMainWindow):
         self.setGeometry(100, 100, 500, 650)
         
         self.audio_worker = None
+        self.speech_worker = None
         self.audio_devices = []
         
-        self.mv_pr_path, self.accessories_dir = find_or_create_mv_pr()
+        self.mv_pr_path, self.accessories_dir, self.srecog_path = find_or_create_mv_pr()
         self.config = self.load_config()
+        self.srecog = self.load_srecog()
         self.volume_history = deque(maxlen=100)
         
         self.setup_ui()
@@ -559,6 +820,7 @@ class MainWindow(QMainWindow):
             'mouth_color': [255, 0, 0],
             'wave_color': [255, 255, 255],
             'wave_count': 5,
+            'wave_style': 'circles',
             'window_x': 100,
             'window_y': 100,
             'window_width': 800,
@@ -566,7 +828,16 @@ class MainWindow(QMainWindow):
             'last_device': None,
             'theme': 'default',
             'accessories': [],
-            'character_scale': 1.0
+            'character_scale': 1.0,
+            'speech_rec': False,
+            'face_params': {
+                'squint_freq_threshold': 200,
+                'squint_amount': 0.8,
+                'enlarge_volume_threshold_mult': 2.0,
+                'enlarge_amount': 0.5,
+                'blink_interval': 100,
+                'mouth_multiplier': 1.0
+            }
         }
         try:
             if os.path.exists(self.mv_pr_path):
@@ -575,6 +846,10 @@ class MainWindow(QMainWindow):
                 for key in default_config:
                     if key in loaded_config:
                         default_config[key] = loaded_config[key]
+                if 'face_params' in loaded_config:
+                    for k in default_config['face_params']:
+                        if k in loaded_config['face_params']:
+                            default_config['face_params'][k] = loaded_config['face_params'][k]
                 # Migrate old single accessory to list
                 if 'selected_accessory' in loaded_config and loaded_config['selected_accessory'] != 'None':
                     default_config['accessories'].append({
@@ -591,6 +866,21 @@ class MainWindow(QMainWindow):
         except Exception as e:
             print(f"Error loading config from {self.mv_pr_path}: {e}")
         return default_config
+    
+    def load_srecog(self):
+        default_srecog = {
+            "happy": ["happy", "joy", "great", "awesome"],
+            "sad": ["sad", "bad", "terrible", "sorry"],
+            "angry": ["angry", "mad", "furious", "hate"],
+            "surprised": ["wow", "surprise", "amazing", "shocking"]
+        }
+        try:
+            if os.path.exists(self.srecog_path):
+                with open(self.srecog_path, 'r') as f:
+                    return json.load(f)
+        except Exception as e:
+            print(f"Error loading SRecog.json: {e}")
+        return default_srecog
         
     def save_config(self):
         try:
@@ -667,6 +957,14 @@ class MainWindow(QMainWindow):
         appearance_btn.clicked.connect(self.open_appearance_settings)
         viz_layout.addWidget(appearance_btn)
         
+        face_config_btn = QPushButton("Configure Face")
+        face_config_btn.clicked.connect(self.open_face_config)
+        viz_layout.addWidget(face_config_btn)
+        
+        self.speech_rec_check = QCheckBox("Enable Speech Recognition")
+        self.speech_rec_check.setChecked(self.config.get('speech_rec', False))
+        viz_layout.addWidget(self.speech_rec_check)
+        
         accessory_group = QGroupBox("Accessories")
         acc_layout = QVBoxLayout(accessory_group)
         add_layout = QHBoxLayout()
@@ -690,6 +988,7 @@ class MainWindow(QMainWindow):
         acc_btn_layout.addWidget(self.move_btn)
         self.resize_btn = QPushButton("Enable Accessory Resize")
         self.resize_btn.clicked.connect(self.toggle_accessory_resize_mode)
+        self.resize_btn.setEnabled(False)
         acc_btn_layout.addWidget(self.resize_btn)
         self.character_resize_btn = QPushButton("Resize Character")
         self.character_resize_btn.clicked.connect(self.toggle_character_resize_mode)
@@ -1128,7 +1427,7 @@ class MainWindow(QMainWindow):
                 }
                 QStatusBar, QLabel#status_bar {
                     background-color: #f0f0f0;
-                    padding: 4pxrobot:4px;
+                    padding: 4px;
                     border-radius: 4px;
                 }
             """,
@@ -1280,7 +1579,6 @@ class MainWindow(QMainWindow):
         """)
         
     def preview_theme(self, theme_name):
-        # Store current theme for potential revert
         self.current_theme = self.config['theme']
         self.apply_theme(theme_name)
         
@@ -1326,8 +1624,14 @@ class MainWindow(QMainWindow):
     
     def toggle_accessory_drag_mode(self):
         if hasattr(self, 'overlay'):
-            self.overlay.set_accessory_drag_mode(not self.overlay.accessory_drag_mode)
-            self.move_btn.setText("Disable Accessory Move" if self.overlay.accessory_drag_mode else "Enable Accessory Move")
+            enabled = not self.overlay.accessory_drag_mode
+            self.overlay.set_accessory_drag_mode(enabled)
+            self.move_btn.setText("Disable Accessory Move" if enabled else "Enable Accessory Move")
+            if not enabled:
+                if self.overlay.accessory_resize_mode:
+                    self.overlay.set_accessory_resize_mode(False)
+                    self.resize_btn.setText("Enable Accessory Resize")
+            self.resize_btn.setEnabled(enabled)
             self.overlay.update()
     
     def toggle_accessory_resize_mode(self):
@@ -1375,7 +1679,7 @@ class MainWindow(QMainWindow):
         device_index = self.device_combo.currentData()
         worker = AudioWorker(device_index)
         measurements = []
-        def collect_volume(volume):
+        def collect_volume(volume, _):
             measurements.append(volume)
         worker.volume_signal.connect(collect_volume)
         worker.start()
@@ -1409,6 +1713,11 @@ class MainWindow(QMainWindow):
         self.audio_worker.volume_signal.connect(self.update_volume)
         self.audio_worker.error_signal.connect(self.handle_audio_error)
         self.audio_worker.start()
+        if self.speech_rec_check.isChecked():
+            self.speech_worker = SpeechWorker(device_index, self.srecog)
+            self.speech_worker.emotion_signal.connect(self.overlay.set_emotion)
+            self.speech_worker.error_signal.connect(self.handle_audio_error)
+            self.speech_worker.start()
         self.start_btn.setEnabled(False)
         self.stop_btn.setEnabled(True)
         self.device_combo.setEnabled(False)
@@ -1416,68 +1725,60 @@ class MainWindow(QMainWindow):
         self.status_bar.setText("Overlay active. Speak to see the character respond.")
         
     def stop_overlay(self):
-        # First, stop the audio worker if it exists
         if self.audio_worker:
             try:
-                # Disconnect signals first to prevent any further emissions
-                try:
-                    self.audio_worker.volume_signal.disconnect()
-                    self.audio_worker.error_signal.disconnect()
-                except:
-                    pass  # Ignore if already disconnected
-                
-                # Stop the worker thread safely
-                self.audio_worker.stop()
-                # Wait for the thread to finish with a timeout
-                if not self.audio_worker.wait(2000):  # Wait up to 2 seconds
-                    print("Warning: Audio worker thread did not terminate gracefully")
-                    self.audio_worker.terminate()  # Force termination if needed
-                    self.audio_worker.wait()
-            except Exception as e:
-                print(f"Error stopping audio worker: {e}")
-            finally:
-                self.audio_worker = None
+                self.audio_worker.volume_signal.disconnect()
+                self.audio_worker.error_signal.disconnect()
+            except:
+                pass
+            self.audio_worker.stop()
+            if not self.audio_worker.wait(2000):
+                print("Warning: Audio worker thread did not terminate gracefully")
+                self.audio_worker.terminate()
+                self.audio_worker.wait()
+            self.audio_worker = None
         
-        # Then close the overlay window if it exists
+        if self.speech_worker:
+            try:
+                self.speech_worker.emotion_signal.disconnect()
+                self.speech_worker.error_signal.disconnect()
+            except:
+                pass
+            self.speech_worker.stop()
+            self.speech_worker = None
+        
         if hasattr(self, 'overlay') and self.overlay:
             try:
-                # Save the window position and size
                 self.config['window_x'] = self.overlay.x()
                 self.config['window_y'] = self.overlay.y()
                 self.config['window_width'] = self.overlay.width()
                 self.config['window_height'] = self.overlay.height()
                 
-                # Stop the animation timer before closing
                 self.overlay.animation_timer.stop()
                 
-                # Close the overlay
                 self.overlay.close()
-                # Schedule the overlay for deletion
                 self.overlay.deleteLater()
             except Exception as e:
                 print(f"Error closing overlay: {e}")
             finally:
-                # Remove the reference to the overlay
                 if hasattr(self, 'overlay'):
                     del self.overlay
         
-        # Update UI state
         self.start_btn.setEnabled(True)
         self.stop_btn.setEnabled(False)
         self.device_combo.setEnabled(True)
         self.calibrate_btn.setEnabled(True)
         self.status_bar.setText("Overlay stopped.")
         
-        # Force a garbage collection to clean up any remaining references
         import gc
         gc.collect()
         
-    def update_volume(self, volume):
+    def update_volume(self, volume, freq):
         self.volume_label.setText(f"Volume: {volume}")
         self.volume_bar.setValue(volume)
         self.volume_history.append(volume)
         if hasattr(self, 'overlay'):
-            self.overlay.set_volume(volume)
+            self.overlay.set_volume(volume, freq)
             
     def handle_audio_error(self, error_msg):
         QMessageBox.critical(self, "Audio Error", error_msg)
@@ -1511,6 +1812,10 @@ class MainWindow(QMainWindow):
         dialog = AppearanceSettings(self)
         dialog.exec_()
         
+    def open_face_config(self):
+        dialog = FaceConfigDialog(self)
+        dialog.exec_()
+        
     def open_manual(self):
         script_dir = os.path.dirname(os.path.abspath(__file__))
         manual_path = os.path.join(script_dir, "MV_manual.py")
@@ -1530,6 +1835,7 @@ class MainWindow(QMainWindow):
                     if key in loaded_config:
                         self.config[key] = loaded_config[key]
                 self.threshold_slider.setValue(self.config['threshold'])
+                self.speech_rec_check.setChecked(self.config.get('speech_rec', False))
                 self.update_accessories_list()
                 if 'theme' in loaded_config:
                     self.apply_theme(loaded_config['theme'])
@@ -1540,10 +1846,6 @@ class MainWindow(QMainWindow):
                 QMessageBox.critical(self, "Error", f"Failed to load settings: {e}")
                 
     def closeEvent(self, event):
-        # # Stop the animation timer
-        # # self.animation_timer.stop()
-        # # Clean up any resources
-        # self.accessory_images.clear()
         event.accept()
 
 if __name__ == "__main__":

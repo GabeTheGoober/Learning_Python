@@ -16,6 +16,7 @@
         0
     ],
     "wave_count": 7,
+    "wave_style": "circles",
     "window_x": 1267,
     "window_y": 291,
     "window_width": 900,
@@ -39,8 +40,17 @@
             "name": "Tie",
             "x_offset": 2,
             "y_offset": 185,
-            "scale": 0.38877918369843323
+            "scale": 0.3501226884419613
         }
     ],
-    "character_scale": 0.4958200824856037
+    "character_scale": 0.4958200824856037,
+    "speech_rec": false,
+    "face_params": {
+        "squint_freq_threshold": 290,
+        "squint_amount": 0.8,
+        "enlarge_volume_threshold_mult": 2.0,
+        "enlarge_amount": 0.5,
+        "blink_interval": 72,
+        "mouth_multiplier": 1.0
+    }
 }

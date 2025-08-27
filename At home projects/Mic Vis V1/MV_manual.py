@@ -32,7 +32,7 @@ class ManualWindow(QMainWindow):
 <h3>Appearance Settings</h3>
 <p>Click "Appearance Settings" button:</p>
 <ul>
-<li><b>Wave Count:</b> Set the number of sound waves (1-10).</li>
+<li><b>Wave Count:</b> Set the number of sound waves (1-7).</li>
 <li><b>Colors:</b> Change head, mouth, and wave colors using the buttons.</li>
 </ul>
 
