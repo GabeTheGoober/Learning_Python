@@ -1,9 +1,9 @@
 {
     "threshold": 1218,
     "head_color": [
-        117,
-        117,
-        117
+        103,
+        103,
+        103
     ],
     "mouth_color": [
         255,
@@ -16,13 +16,13 @@
         0
     ],
     "wave_count": 5,
-    "wave_style": "circles",
+    "wave_style": "dots",
     "window_x": 1202,
     "window_y": 350,
     "window_width": 800,
     "window_height": 800,
-    "last_device": 0,
-    "theme": "dark",
+    "last_device": 1,
+    "theme": "default",
     "accessories": [
         {
             "name": "Mustache",
@@ -32,13 +32,12 @@
         },
         {
             "name": "tophat",
-            "x_offset": -62,
-            "y_offset": -188,
+            "x_offset": -67,
+            "y_offset": -184,
             "scale": 0.8791534197898613
         }
     ],
     "character_scale": 0.5236494892115334,
-    "speech_rec": false,
     "face_params": {
         "squint_freq_threshold": 200,
         "squint_amount": 0.8,

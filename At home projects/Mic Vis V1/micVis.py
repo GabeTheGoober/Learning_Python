@@ -7,11 +7,10 @@ import os
 import shutil
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                              QHBoxLayout, QPushButton, QComboBox, QLabel, 
-                             QSlider, QMessageBox, QProgressBar, QCheckBox,
-                             QColorDialog, QSpinBox, QGroupBox, QFileDialog,
-                             QMenu, QToolButton, QStyleFactory, QListWidget,
-                             QDialog, QSizePolicy, QTextBrowser)
-from PyQt5.QtCore import Qt, QTimer, QThread, pyqtSignal, QSettings, QPoint, QRect
+                             QSlider, QMessageBox, QProgressBar, QColorDialog, 
+                             QSpinBox, QGroupBox, QFileDialog, QMenu, QToolButton, 
+                             QStyleFactory, QListWidget, QDialog, QSizePolicy)
+from PyQt5.QtCore import Qt, QTimer, QThread, pyqtSignal, QPoint, QRect
 from PyQt5.QtGui import QPainter, QColor, QPen, QPixmap, QImage, QMouseEvent, QFont, QIcon
 import threading
 import time
@@ -19,21 +18,14 @@ from collections import deque
 import subprocess
 import math
 import random
-try:
-    import speech_recognition as sr
-    print("Speech recognition library imported successfully")
-except ImportError:
-    sr = None
-    print("Speech recognition library not available. Please install with: pip install SpeechRecognition")
 
 if sys.platform == 'win32':
     import ctypes
 
-# Function to find or create the MV_pr.json file, SRecog.json, MV_accessories folder, and MV_themes.json
+# Function to find or create the MV_pr.json file, MV_accessories folder, and MV_themes.json
 def find_or_create_mv_pr():
     script_dir = os.path.dirname(os.path.abspath(__file__))
     target_filename = "MV_pr.json"
-    srecog_filename = "SRecog.json"
     themes_filename = "MV_themes.json"
     
     # Create MV_accessories folder if it doesn't exist
@@ -63,7 +55,6 @@ def find_or_create_mv_pr():
             'theme': 'default',
             'accessories': [],
             'character_scale': 1.0,
-            'speech_rec': False,
             'face_params': {
                 'squint_freq_threshold': 200,
                 'squint_amount': 0.8,
@@ -78,21 +69,6 @@ def find_or_create_mv_pr():
                 json.dump(default_config, f, indent=4)
         except Exception as e:
             print(f"Error creating default config: {e}")
-    
-    # Check for SRecog.json
-    srecog_path = os.path.join(script_dir, srecog_filename)
-    if not os.path.exists(srecog_path):
-        default_srecog = {
-            "happy": ["happy", "joy", "great", "awesome"],
-            "sad": ["sad", "bad", "terrible", "sorry"],
-            "angry": ["angry", "mad", "furious", "hate"],
-            "surprised": ["wow", "surprise", "amazing", "shocking"]
-        }
-        try:
-            with open(srecog_path, 'w') as f:
-                json.dump(default_srecog, f, indent=4)
-        except Exception as e:
-            print(f"Error creating SRecog.json: {e}")
     
     # Check for MV_themes.json
     themes_path = os.path.join(script_dir, themes_filename)
@@ -142,7 +118,7 @@ def find_or_create_mv_pr():
                         border-radius: 4px;
                     }
                     QSlider::handle:horizontal {
-                        background: #05B8CC;
+                        background: #05cc0c;
                         border: 1px solid #999999;
                         width: 18px;
                         margin: -2px 0;
@@ -165,7 +141,7 @@ def find_or_create_mv_pr():
                         background-color: #f0f0f0;
                     }
                     QProgressBar::chunk {
-                        background-color: #05B8CC;
+                        background-color: #05cc0c;
                         width: 10px;
                     }
                 """
@@ -177,7 +153,7 @@ def find_or_create_mv_pr():
         except Exception as e:
             print(f"Error creating MV_themes.json: {e}")
     
-    return file_path, accessories_dir, srecog_path, themes_path
+    return file_path, accessories_dir, themes_path
 
 class AudioWorker(QThread):
     volume_signal = pyqtSignal(int, float)
@@ -251,80 +227,6 @@ class AudioWorker(QThread):
             
     def set_threshold(self, value):
         self.threshold = value
-
-class SpeechWorker(QThread):
-    emotion_signal = pyqtSignal(str)
-    error_signal = pyqtSignal(str)
-    status_signal = pyqtSignal(str)
-    
-    def __init__(self, device_index, srecog, parent=None):
-        super().__init__(parent)
-        self.device_index = device_index
-        self.srecog = srecog
-        self.running = False
-        self.recognizer = None
-        self.microphone = None
-        
-    def run(self):
-        if sr is None:
-            self.error_signal.emit("Speech recognition library not available. Please install speech_recognition.")
-            return
-            
-        self.running = True
-        self.recognizer = sr.Recognizer()
-        self.recognizer.energy_threshold = 300
-        self.recognizer.dynamic_energy_threshold = True
-        self.recognizer.pause_threshold = 0.8
-        
-        mic_list = sr.Microphone.list_microphone_names()
-        self.status_signal.emit(f"Available mics: {', '.join(mic_list)}")
-        
-        try:
-            if self.device_index < len(mic_list):
-                self.microphone = sr.Microphone(device_index=self.device_index)
-                self.status_signal.emit(f"Using mic: {mic_list[self.device_index]}")
-            else:
-                self.microphone = sr.Microphone()
-                self.status_signal.emit("Using default microphone")
-        except Exception as e:
-            self.error_signal.emit(f"Microphone initialization error: {e}")
-            self.running = False
-            return
-            
-        try:
-            with self.microphone as source:
-                self.recognizer.adjust_for_ambient_noise(source, duration=1)
-                self.status_signal.emit("Adjusted for ambient noise")
-        except Exception as e:
-            self.error_signal.emit(f"Ambient noise adjustment failed: {e}")
-            
-        while self.running:
-            try:
-                with self.microphone as source:
-                    audio = self.recognizer.listen(source, timeout=1, phrase_time_limit=5)
-                
-                text = self.recognizer.recognize_google(audio).lower()
-                self.status_signal.emit(f"Recognized: {text}")
-                
-                for emotion, words in self.srecog.items():
-                    if any(word in text for word in words):
-                        self.emotion_signal.emit(emotion)
-                        self.status_signal.emit(f"Detected emotion: {emotion}")
-                        break
-            except sr.WaitTimeoutError:
-                continue
-            except sr.UnknownValueError:
-                continue
-            except sr.RequestError as e:
-                self.error_signal.emit(f"Speech recognition API error: {e}")
-                time.sleep(2)
-            except Exception as e:
-                self.error_signal.emit(f"Unexpected error in speech recognition: {e}")
-                time.sleep(1)
-    
-    def stop(self):
-        self.running = False
-        self.wait(1000)
 
 class OverlayWindow(QWidget):
     def __init__(self, config, accessories_dir):
@@ -542,10 +444,6 @@ class OverlayWindow(QWidget):
     def set_threshold(self, threshold):
         self.threshold = threshold
         
-    def set_emotion(self, emotion):
-        self.current_emotion = emotion
-        self.emotion_end_time = time.time() + 5
-        
     def set_accessory_drag_mode(self, enabled):
         self.accessory_drag_mode = enabled
         self.update()
@@ -657,29 +555,6 @@ class OverlayWindow(QWidget):
         eye_center_right_x = head_center.x() + eye_offset_x
         eye_center_y = head_center.y() + eye_offset_y
         
-        mouth_shape = "ellipse"
-        draw_eyebrows = False
-        brow_slant = 0
-        if self.current_emotion == "happy":
-            mouth_shape = "smile"
-            eye_scale *= 1.1
-        elif self.current_emotion == "sad":
-            mouth_shape = "frown"
-            squint_factor = max(squint_factor, 0.3)
-        elif self.current_emotion == "angry":
-            draw_eyebrows = True
-            brow_slant = int(head_radius * 0.1)
-            squint_factor = max(squint_factor, 0.5)
-        elif self.current_emotion == "surprised":
-            eye_scale *= 1.5
-            self.mouth_openness = 0.8
-            mouth_shape = "ellipse"
-        
-        eye_radius = int(head_radius * 0.15 * eye_scale)
-        eye_ry = int(eye_radius * (1 - squint_factor))
-        pupil_radius = int(eye_radius * 0.5)
-        pupil_ry = int(pupil_radius * (1 - squint_factor))
-        
         painter.setBrush(Qt.white)
         painter.setPen(Qt.NoPen)
         painter.drawEllipse(int(eye_center_left_x - eye_rx), int(eye_center_y - eye_ry), int(2 * eye_rx), int(2 * eye_ry))
@@ -695,36 +570,16 @@ class OverlayWindow(QWidget):
             painter.drawEllipse(int(eye_center_left_x - pupil_rx), int(eye_center_y - half_pupil_ry + shift), int(2 * pupil_rx), int(2 * half_pupil_ry))
             painter.drawEllipse(int(eye_center_right_x - pupil_rx), int(eye_center_y - half_pupil_ry + shift), int(2 * pupil_rx), int(2 * half_pupil_ry))
         
-        if draw_eyebrows:
-            painter.setPen(QPen(Qt.black, int(head_radius * 0.05), Qt.SolidLine, Qt.RoundCap))
-            brow_length = int(eye_radius * 1.2)
-            brow_y = eye_center_y - eye_ry - int(head_radius * 0.1)
-            painter.drawLine(int(eye_center_left_x - brow_length / 2), brow_y - brow_slant, int(eye_center_left_x + brow_length / 2), brow_y + brow_slant)
-            painter.drawLine(int(eye_center_right_x - brow_length / 2), brow_y + brow_slant, int(eye_center_right_x + brow_length / 2), brow_y - brow_slant)
-        
         mouth_width = int(head_radius * 0.7)
         mouth_height = int(head_radius * 0.4 * self.mouth_openness)
         mouth_y_offset = int(head_radius * 0.3)
         
-        if self.current_emotion == "surprised":
-            mouth_width = int(mouth_width * 0.5)
-            mouth_height = int(mouth_height * 1.2)
-        
         mouth_color = QColor(*self.config.get('mouth_color', [255, 0, 0]))
-        if mouth_shape == "ellipse":
-            painter.setBrush(mouth_color)
-            painter.setPen(Qt.NoPen)
-            painter.drawEllipse(head_center.x() - int(mouth_width/2), 
-                               head_center.y() + mouth_y_offset, 
-                               mouth_width, mouth_height)
-        else:
-            painter.setBrush(Qt.NoBrush)
-            pen = QPen(mouth_color, int(head_radius * 0.05), Qt.SolidLine, Qt.RoundCap)
-            painter.setPen(pen)
-            if mouth_shape == "smile":
-                painter.drawArc(head_center.x() - int(mouth_width/2), head_center.y() + mouth_y_offset - mouth_height, mouth_width, mouth_height * 2, 180 * 16, -180 * 16)
-            elif mouth_shape == "frown":
-                painter.drawArc(head_center.x() - int(mouth_width/2), head_center.y() + mouth_y_offset - mouth_height, mouth_width, mouth_height * 2, 0, 180 * 16)
+        painter.setBrush(mouth_color)
+        painter.setPen(Qt.NoPen)
+        painter.drawEllipse(head_center.x() - int(mouth_width/2), 
+                           head_center.y() + mouth_y_offset, 
+                           mouth_width, mouth_height)
         
         style = self.config.get('wave_style', 'circles')
         wave_color = QColor(*self.config.get('wave_color', [255, 255, 255]))
@@ -873,9 +728,9 @@ class AppearanceSettings(QDialog):
         layout.addLayout(style_layout)
 
         color_layout = QHBoxLayout()
-        head_color_btn = QPushButton("Head Color")
-        head_color_btn.clicked.connect(lambda: parent.change_color('head_color'))
-        color_layout.addWidget(head_color_btn)
+        body_color_btn = QPushButton("Body Color")
+        body_color_btn.clicked.connect(lambda: parent.change_color('head_color'))
+        color_layout.addWidget(body_color_btn)
         mouth_color_btn = QPushButton("Mouth Color")
         mouth_color_btn.clicked.connect(lambda: parent.change_color('mouth_color'))
         color_layout.addWidget(mouth_color_btn)
@@ -911,7 +766,7 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("MicVis")
         self.setGeometry(100, 100, 500, 650)
         
-        self.mv_pr_path, self.accessories_dir, self.srecog_path, self.themes_path = find_or_create_mv_pr()
+        self.mv_pr_path, self.accessories_dir, self.themes_path = find_or_create_mv_pr()
         icon_path = os.path.join(self.accessories_dir, "micVisIcon.png")
         if os.path.exists(icon_path):
             self.setWindowIcon(QIcon(icon_path))
@@ -919,19 +774,17 @@ class MainWindow(QMainWindow):
             print(f"Warning: Icon file not found at {icon_path}, using default icon")
 
         self.audio_worker = None
-        self.speech_worker = None
         self.audio_devices = []
         self.manual_process = None
         
         self.config = self.load_config()
-        self.srecog = self.load_srecog()
         self.volume_history = deque(maxlen=100)
         
         self.setup_ui()
+        self.populate_audio_devices()  # Automatically refresh devices
         self.apply_theme(self.config.get('theme', 'default'))
         self.populate_accessories()
         self.update_accessories_list()
-        self.refresh_audio_devices()
         
     def load_config(self):
         default_config = {
@@ -949,7 +802,6 @@ class MainWindow(QMainWindow):
             'theme': 'default',
             'accessories': [],
             'character_scale': 1.0,
-            'speech_rec': False,
             'face_params': {
                 'squint_freq_threshold': 200,
                 'squint_amount': 0.8,
@@ -985,21 +837,6 @@ class MainWindow(QMainWindow):
             print(f"Error loading config from {self.mv_pr_path}: {e}")
         return default_config
     
-    def load_srecog(self):
-        default_srecog = {
-            "happy": ["happy", "joy", "great", "awesome"],
-            "sad": ["sad", "bad", "terrible", "sorry"],
-            "angry": ["angry", "mad", "furious", "hate"],
-            "surprised": ["wow", "surprise", "amazing", "shocking"]
-        }
-        try:
-            if os.path.exists(self.srecog_path):
-                with open(self.srecog_path, 'r') as f:
-                    return json.load(f)
-        except Exception as e:
-            print(f"Error loading SRecog.json: {e}")
-        return default_srecog
-        
     def save_config(self):
         try:
             with open(self.mv_pr_path, 'w') as f:
@@ -1031,7 +868,7 @@ class MainWindow(QMainWindow):
         theme_menu = QMenu(self)
         themes = ['Default', 'Red', 'Blue', 'Dark', 'Light', 'Purple', 'Green', 'Orange',
                    'Yellow', 'Pink', 'Cyan', 'Magenta', 'Teal', 'Indigo', 'Brown', 
-                   'Red on Black','Green on Black', 'Yellow on Black', 'Purple on Black', 'Neon', 'Pastel']
+                   'Red_on_black','Green_on_black', 'Yellow_on_black', 'Purple_on_black', 'Neon', 'Pastel']
         for theme in themes:
             theme_menu.addAction(theme, lambda t=theme: self.apply_theme(t.lower()))
         self.theme_button.setMenu(theme_menu)
@@ -1045,9 +882,6 @@ class MainWindow(QMainWindow):
         self.device_combo = QComboBox()
         self.device_combo.setMaximumWidth(250)
         device_select_layout.addWidget(self.device_combo)
-        refresh_btn = QPushButton("Refresh")
-        refresh_btn.clicked.connect(self.refresh_audio_devices)
-        device_select_layout.addWidget(refresh_btn)
         device_layout.addLayout(device_select_layout)
         self.calibrate_btn = QPushButton("Calibrate Sensitivity")
         self.calibrate_btn.clicked.connect(self.calibrate_sensitivity)
@@ -1081,10 +915,6 @@ class MainWindow(QMainWindow):
         face_config_btn.clicked.connect(self.open_face_config)
         viz_layout.addWidget(face_config_btn)
         
-        self.speech_rec_check = QCheckBox("Enable Speech Recognition")
-        self.speech_rec_check.setChecked(self.config.get('speech_rec', False))
-        viz_layout.addWidget(self.speech_rec_check)
-        
         accessory_group = QGroupBox("Accessories")
         acc_layout = QVBoxLayout(accessory_group)
         add_layout = QHBoxLayout()
@@ -1092,10 +922,10 @@ class MainWindow(QMainWindow):
         self.add_accessory_combo = QComboBox()
         self.add_accessory_combo.setMaximumWidth(250)
         add_layout.addWidget(self.add_accessory_combo)
-        add_btn = QPushButton("Add")
+        add_btn = QPushButton("Add to body")
         add_btn.clicked.connect(self.add_accessory)
         add_layout.addWidget(add_btn)
-        import_accessory_btn = QPushButton("Add Image")
+        import_accessory_btn = QPushButton("New Accessory")
         import_accessory_btn.clicked.connect(self.import_accessory_image)
         add_layout.addWidget(import_accessory_btn)
         refresh_accessories_btn = QPushButton("⟳")
@@ -1294,6 +1124,35 @@ class MainWindow(QMainWindow):
         for name in accessories:
             self.add_accessory_combo.addItem(name)
     
+    def populate_audio_devices(self):
+        self.device_combo.clear()
+        self.audio_devices = []
+        excluded_keywords = ["stereo mix", "loopback", "virtual audio", "virtual", "software", "wasapi", "what u hear"]
+        try:
+            p = pyaudio.PyAudio()
+            for i in range(p.get_device_count()):
+                device_info = p.get_device_info_by_index(i)
+                if device_info['maxInputChannels'] > 0:
+                    name_lower = device_info['name'].lower()
+                    if not any(keyword in name_lower for keyword in excluded_keywords):
+                        self.audio_devices.append((i, device_info['name']))
+                        self.device_combo.addItem(device_info['name'], i)
+            p.terminate()
+            if self.config['last_device'] is not None:
+                index = self.device_combo.findData(self.config['last_device'])
+                if index >= 0:
+                    self.device_combo.setCurrentIndex(index)
+            if not self.audio_devices:
+                self.start_btn.setEnabled(False)
+                self.status_bar.setText("No microphone devices found.")
+                QMessageBox.warning(self, "No Devices", "No microphone devices found.")
+            else:
+                self.start_btn.setEnabled(True)
+                self.status_bar.setText(f"Found {len(self.audio_devices)} microphone devices.")
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to enumerate audio devices: {e}")
+            self.status_bar.setText("Error enumerating audio devices.")
+    
     def update_accessories_list(self):
         self.accessories_list.clear()
         for acc in self.config.get('accessories', []):
@@ -1378,35 +1237,6 @@ class MainWindow(QMainWindow):
             self.character_resize_btn.setText("Stop Resize" if self.overlay.character_resize_mode else "Resize Character")
             self.overlay.update()
     
-    def refresh_audio_devices(self):
-        self.device_combo.clear()
-        self.audio_devices = []
-        excluded_keywords = ["stereo mix", "loopback", "virtual audio", "virtual", "software", "wasapi", "what u hear"]
-        try:
-            p = pyaudio.PyAudio()
-            for i in range(p.get_device_count()):
-                device_info = p.get_device_info_by_index(i)
-                if device_info['maxInputChannels'] > 0:
-                    name_lower = device_info['name'].lower()
-                    if not any(keyword in name_lower for keyword in excluded_keywords):
-                        self.audio_devices.append((i, device_info['name']))
-                        self.device_combo.addItem(device_info['name'], i)
-            p.terminate()
-            if self.config['last_device'] is not None:
-                index = self.device_combo.findData(self.config['last_device'])
-                if index >= 0:
-                    self.device_combo.setCurrentIndex(index)
-            if not self.audio_devices:
-                self.start_btn.setEnabled(False)
-                self.status_bar.setText("No microphone devices found.")
-                QMessageBox.warning(self, "No Devices", "No microphone devices found.")
-            else:
-                self.start_btn.setEnabled(True)
-                self.status_bar.setText(f"Found {len(self.audio_devices)} microphone devices.")
-        except Exception as e:
-            QMessageBox.critical(self, "Error", f"Failed to enumerate audio devices: {e}")
-            self.status_bar.setText("Error enumerating audio devices.")
-        
     def calibrate_sensitivity(self):
         if self.device_combo.count() == 0:
             QMessageBox.warning(self, "No Device", "Please select a microphone first.")
@@ -1449,28 +1279,12 @@ class MainWindow(QMainWindow):
         self.audio_worker.error_signal.connect(self.handle_audio_error)
         self.audio_worker.start()
         
-        if self.speech_rec_check.isChecked():
-            self.speech_worker = SpeechWorker(device_index, self.srecog)
-            self.speech_worker.emotion_signal.connect(self.overlay.set_emotion)
-            self.speech_worker.error_signal.connect(self.handle_speech_error)
-            self.speech_worker.status_signal.connect(self.handle_speech_status)
-            self.speech_worker.start()
-            self.status_bar.setText("Speech recognition started...")
-        
         self.start_btn.setEnabled(False)
         self.stop_btn.setEnabled(True)
         self.device_combo.setEnabled(False)
         self.calibrate_btn.setEnabled(False)
         self.status_bar.setText("Overlay active. Speak to see the character respond.")
-        
-    def handle_speech_error(self, error_msg):
-        self.statusRosenthal(self, "Speech error: {error_msg}")
-        
-    def handle_speech_status(self, status_msg):
-        if len(status_msg) > 60:
-            status_msg = status_msg[:57] + "..."
-        self.status_bar.setText(status_msg)
-        
+            
     def stop_overlay(self):
         if self.audio_worker:
             try:
@@ -1484,15 +1298,6 @@ class MainWindow(QMainWindow):
                 self.audio_worker.terminate()
                 self.audio_worker.wait()
             self.audio_worker = None
-        
-        if self.speech_worker:
-            try:
-                self.speech_worker.emotion_signal.disconnect()
-                self.speech_worker.error_signal.disconnect()
-            except:
-                pass
-            self.speech_worker.stop()
-            self.speech_worker = None
         
         if hasattr(self, 'overlay') and self.overlay:
             try:
@@ -1547,13 +1352,16 @@ class MainWindow(QMainWindow):
             self.overlay.update()
             
     def change_color(self, color_type):
-        color = QColorDialog.getColor(QColor(*self.config[color_type]), self)
+        initial_color = QColor(*self.config[color_type])
+        color = QColorDialog.getColor(initial_color, self)
         if color.isValid():
             self.config[color_type] = [color.red(), color.green(), color.blue()]
+            self.save_config()
             if hasattr(self, 'overlay'):
                 self.overlay.config[color_type] = [color.red(), color.green(), color.blue()]
                 self.overlay.static_cache = None
                 self.overlay.update()
+                self.overlay.repaint()
                 
     def open_appearance_settings(self):
         dialog = AppearanceSettings(self)
@@ -1585,7 +1393,6 @@ class MainWindow(QMainWindow):
                     if key in loaded_config:
                         self.config[key] = loaded_config[key]
                 self.threshold_slider.setValue(self.config['threshold'])
-                self.speech_rec_check.setChecked(self.config.get('speech_rec', False))
                 self.update_accessories_list()
                 if 'theme' in loaded_config:
                     self.apply_theme(loaded_config['theme'])
