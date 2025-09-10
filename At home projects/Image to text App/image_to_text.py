@@ -296,7 +296,7 @@ class ImageToTextApp(QMainWindow):
             
         self.result_tabs.setVisible(True)
         
-        QMessageBox.information(self, "Conversion Completed", 
+        QMessageBox.information(self, "Conversion Complete", 
                                "Text extraction completed successfully!")
         
     def ocr_error(self, error_msg):
@@ -331,7 +331,7 @@ class ImageToTextApp(QMainWindow):
     def pdf_finished(self, output_path):
         self.progress_bar.setVisible(False)
         self.compile_pdf_btn.setEnabled(True)
-        QMessageBox.information(self, "PDF Created 📄", 
+        QMessageBox.information(self, "PDF Created", 
                                f"PDF successfully created at:\n{output_path}")
         
     def pdf_error(self, error_msg):
@@ -340,7 +340,7 @@ class ImageToTextApp(QMainWindow):
         QMessageBox.critical(self, "PDF Error", f"An error occurred creating PDF:\n{error_msg}")
 
 def main():
-    # Check if Tesseract is installed (It should already be in the same directory as this script)
+    # Check if Tesseract is installed
     try:
         pytesseract.get_tesseract_version()
     except:
