@@ -17,12 +17,12 @@
     ],
     "wave_count": 5,
     "wave_style": "dots",
-    "window_x": 1202,
-    "window_y": 350,
+    "window_x": 1314,
+    "window_y": 340,
     "window_width": 800,
     "window_height": 800,
     "last_device": 1,
-    "theme": "default",
+    "theme": "red_on_black",
     "accessories": [
         {
             "name": "Mustache",
@@ -35,6 +35,12 @@
             "x_offset": -67,
             "y_offset": -184,
             "scale": 0.8791534197898613
+        },
+        {
+            "name": "Black Suit",
+            "x_offset": -3,
+            "y_offset": 78,
+            "scale": 1.2688463426403302
         }
     ],
     "character_scale": 0.5236494892115334,
