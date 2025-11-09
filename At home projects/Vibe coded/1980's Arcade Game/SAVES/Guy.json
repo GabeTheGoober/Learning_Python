@@ -1,0 +1,27 @@
+{
+  "name": "Guy",
+  "created": "2025-11-10 07:03",
+  "games_played": 0,
+  "total_score": 0,
+  "unlocked_games": [
+    "PONG",
+    "SNAKE",
+    "BREAKOUT",
+    "SPACE_INVADERS",
+    "TETRIS",
+    "ASTEROIDS",
+    "PLATFORMER",
+    "POKEMON"
+  ],
+  "pokemon_collection": [],
+  "high_scores": {
+    "PONG": [],
+    "SNAKE": [],
+    "BREAKOUT": [],
+    "SPACE_INVADERS": [],
+    "TETRIS": [],
+    "ASTEROIDS": [],
+    "PLATFORMER": [],
+    "POKEMON": []
+  }
+}

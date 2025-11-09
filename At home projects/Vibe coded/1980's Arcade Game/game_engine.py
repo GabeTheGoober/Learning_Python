@@ -13,8 +13,8 @@ pygame.mixer.init()
 
 # --- Config ---
 class Config:
-    WIDTH = 800
-    HEIGHT = 600
+    WIDTH = 1024
+    HEIGHT = 768
     FPS = 60
     COLORS = {
         "WHITE": (255, 255, 255),
@@ -47,78 +47,179 @@ class Config:
 
 # Save System
 class SaveSystem:
-    def __init__(self):
-        self.save_file = "arcade_save.json"
-        self.data = self.load_data()
-    
-    def load_data(self):
+    def __init__(self, saves_dir="SAVES"):
+        self.saves_dir = saves_dir
+        # Ensure saves folder exists
+        os.makedirs(self.saves_dir, exist_ok=True)
+
+        # Global leaderboard file (keeps aggregated top scores across users)
+        self.global_file = os.path.join(self.saves_dir, "global_high_scores.json")
+
+        # Games list used by the engine
+        self._games = ["PONG", "SNAKE", "BREAKOUT", "SPACE_INVADERS",
+                       "TETRIS", "ASTEROIDS", "PLATFORMER", "POKEMON"]
+
+        # Create global file if missing
+        if not os.path.exists(self.global_file):
+            initial = {"high_scores": {g: [] for g in self._games}}
+            try:
+                with open(self.global_file, "w") as f:
+                    json.dump(initial, f, indent=2)
+            except Exception:
+                pass
+
+        # Load global data
+        self._load_global()
+
+    def _load_global(self):
         try:
-            if os.path.exists(self.save_file):
-                with open(self.save_file, 'r') as f:
-                    return json.load(f)
-        except:
+            with open(self.global_file, "r") as f:
+                self.global_data = json.load(f)
+        except Exception:
+            self.global_data = {"high_scores": {g: [] for g in self._games}}
+
+    def list_users(self):
+        """Return list of usernames (json filenames without extension) from SAVES folder."""
+        users = []
+        try:
+            for fname in os.listdir(self.saves_dir):
+                if not fname.lower().endswith(".json"):
+                    continue
+                if os.path.abspath(os.path.join(self.saves_dir, fname)) == os.path.abspath(self.global_file):
+                    continue
+                users.append(os.path.splitext(fname)[0])
+        except Exception:
             pass
-        return {
-            "players": {},
-            "high_scores": {
-                "PONG": [], "SNAKE": [], "BREAKOUT": [], "SPACE_INVADERS": [],
-                "TETRIS": [], "ASTEROIDS": [], "PLATFORMER": [], "POKEMON": []
-            },
-            "settings": {"sound": True, "music": True}
-        }
-    
-    def save_data(self):
-        try:
-            with open(self.save_file, 'w') as f:
-                json.dump(self.data, f, indent=2)
-            return True
-        except:
+        users.sort()
+        return users
+
+    def _user_file(self, name):
+        # sanitize filename a bit
+        safe = "".join(c for c in name if c.isalnum() or c in "-_ ").strip()
+        if not safe:
+            safe = "user"
+        return os.path.join(self.saves_dir, f"{safe}.json")
+
+    def user_exists(self, name):
+        return os.path.exists(self._user_file(name))
+
+    def create_user(self, name):
+        """Create a new user file. Returns True on success, False if user exists or failed."""
+        if self.user_exists(name):
             return False
-    
-    def add_high_score(self, game, name, score):
-        if game not in self.data["high_scores"]:
-            self.data["high_scores"][game] = []
-        
-        self.data["high_scores"][game].append({
+
+        data = {
             "name": name,
-            "score": score,
-            "date": datetime.now().strftime("%Y-%m-%d %H:%M")
-        })
-        
-        # Sort and keep top 10
-        self.data["high_scores"][game].sort(key=lambda x: x["score"], reverse=True)
-        self.data["high_scores"][game] = self.data["high_scores"][game][:10]
-        self.save_data()
-    
+            "created": datetime.now().strftime("%Y-%m-%d %H:%M"),
+            "games_played": 0,
+            "total_score": 0,
+            "unlocked_games": ["PONG", "SNAKE", "BREAKOUT", "SPACE_INVADERS", "TETRIS", "ASTEROIDS", "PLATFORMER", "POKEMON"],
+            "pokemon_collection": [],
+            "high_scores": {g: [] for g in self._games}
+        }
+
+        try:
+            with open(self._user_file(name), "w") as f:
+                json.dump(data, f, indent=2)
+            return True
+        except Exception:
+            return False
+
+    def load_user(self, name):
+        """Load a user's data. Returns dict or None."""
+        try:
+            path = self._user_file(name)
+            if not os.path.exists(path):
+                return None
+            with open(path, "r") as f:
+                return json.load(f)
+        except Exception:
+            return None
+
+    def save_user(self, name, data):
+        """Save a user's data dict to file. Returns True/False."""
+        try:
+            with open(self._user_file(name), "w") as f:
+                json.dump(data, f, indent=2)
+            return True
+        except Exception:
+            return False
+
     def get_player_data(self, name):
-        if name not in self.data["players"]:
-            self.data["players"][name] = {
-                "created": datetime.now().strftime("%Y-%m-%d %H:%M"),
-                "games_played": 0,
-                "total_score": 0,
-                "unlocked_games": ["PONG", "SNAKE", "BREAKOUT"],
-                "pokemon_collection": []
-            }
-        return self.data["players"][name]
-    
+        """Ensure user exists and return their data dict."""
+        data = self.load_user(name)
+        if data is None:
+            # create default user if missing
+            created = self.create_user(name)
+            if not created:
+                # fallback empty structure
+                return {
+                    "name": name,
+                    "created": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                    "games_played": 0,
+                    "total_score": 0,
+                    "unlocked_games": ["PONG", "SNAKE", "BREAKOUT"],
+                    "pokemon_collection": [],
+                    "high_scores": {g: [] for g in self._games}
+                }
+            data = self.load_user(name)
+        # Ensure high_scores key exists
+        if "high_scores" not in data:
+            data["high_scores"] = {g: [] for g in self._games}
+        return data
+
+    def save_global(self):
+        try:
+            with open(self.global_file, "w") as f:
+                json.dump(self.global_data, f, indent=2)
+            return True
+        except Exception:
+            return False
+
+    def add_high_score(self, game, player_name, score):
+        """Add high score both to global leaderboard and to the player's file."""
+        if game not in self._games:
+            return
+
+        # Add to global leaderboard
+        entry = {"name": player_name, "score": score, "date": datetime.now().strftime("%Y-%m-%d %H:%M")}
+        self.global_data.setdefault("high_scores", {}).setdefault(game, []).append(entry)
+        self.global_data["high_scores"][game].sort(key=lambda x: x["score"], reverse=True)
+        self.global_data["high_scores"][game] = self.global_data["high_scores"][game][:10]
+        self.save_global()
+
+        # Also record in user's personal file
+        user = self.get_player_data(player_name)
+        user.setdefault("high_scores", {}).setdefault(game, []).append(entry)
+        user["high_scores"][game].sort(key=lambda x: x["score"], reverse=True)
+        user["high_scores"][game] = user["high_scores"][game][:10]
+        self.save_user(player_name, user)
+
+    def get_all_high_scores(self):
+        """Return the aggregated global high scores dict."""
+        return self.global_data.get("high_scores", {g: [] for g in self._games})
+
     def update_player_stats(self, name, score):
-        player = self.get_player_data(name)
-        player["games_played"] += 1
-        player["total_score"] += score
-        
+        """Update player's overall stats and unlock games when thresholds reached."""
+        user = self.get_player_data(name)
+        user["games_played"] = user.get("games_played", 0) + 1
+        user["total_score"] = user.get("total_score", 0) + score
+
         # Unlock games based on total score
-        if player["total_score"] >= 5000 and "SPACE_INVADERS" not in player["unlocked_games"]:
-            player["unlocked_games"].append("SPACE_INVADERS")
-        if player["total_score"] >= 10000 and "TETRIS" not in player["unlocked_games"]:
-            player["unlocked_games"].append("TETRIS")
-        if player["total_score"] >= 20000 and "ASTEROIDS" not in player["unlocked_games"]:
-            player["unlocked_games"].append("ASTEROIDS")
-        if player["total_score"] >= 50000 and "PLATFORMER" not in player["unlocked_games"]:
-            player["unlocked_games"].append("PLATFORMER")
-        if player["total_score"] >= 100000 and "POKEMON" not in player["unlocked_games"]:
-            player["unlocked_games"].append("POKEMON")
-        
-        self.save_data()
+        unlocked = set(user.get("unlocked_games", []))
+        if user["total_score"] >= 5000:
+            unlocked.add("SPACE_INVADERS")
+        if user["total_score"] >= 10000:
+            unlocked.add("TETRIS")
+        if user["total_score"] >= 20000:
+            unlocked.add("ASTEROIDS")
+        if user["total_score"] >= 50000:
+            unlocked.add("PLATFORMER")
+        if user["total_score"] >= 100000:
+            unlocked.add("POKEMON")
+
+        user["unlocked_games"] = sorted(list(unlocked))
+        self.save_user(name, user)
 
 # Sound System
 class SoundSystem:
@@ -289,40 +390,56 @@ class RoundBall:
         self.speed_x = speed * random.choice([-1, 1])
         self.speed_y = random.uniform(-speed/2, speed/2)
         self.base_speed = speed
+        self.max_speed = speed * 2  # Add maximum speed limit
 
-    def reset(self):
-        self.rect.center = (Config.WIDTH // 2, Config.HEIGHT // 2)
-        self.speed_x = self.base_speed * random.choice([-1, 1])
-        self.speed_y = random.uniform(-self.base_speed/2, self.base_speed/2)
 
+    
     def update(self, paddles, boundaries):
-        self.rect.x += self.speed_x
-        self.rect.y += self.speed_y
+            # Store previous position for collision check
+            prev_x = self.rect.x
+            prev_y = self.rect.y
+            
+            # Update position
+            self.rect.x += self.speed_x
+            self.rect.y += self.speed_y
 
-        # Boundary collision
-        if self.rect.top <= boundaries.top or self.rect.bottom >= boundaries.bottom:
-            self.speed_y *= -1
-            sound_system.play("beep1")
+            # Boundary collision
+            if self.rect.top <= boundaries.top or self.rect.bottom >= boundaries.bottom:
+                self.speed_y *= -1
+                self.rect.y = prev_y  # Restore position to prevent sticking
+                sound_system.play("beep1")
 
-        # Paddle collision with speed increase
-        for paddle in paddles:
-            if self.rect.colliderect(paddle.rect):
-                self.speed_x *= -1.1  # Increase speed by 10% with each bounce
-                # Adjust angle based on where ball hits paddle
-                relative_intersect_y = (paddle.rect.centery - self.rect.centery) / (paddle.rect.height / 2)
-                self.speed_y = -relative_intersect_y * 5
-                sound_system.play("beep2")
+            # Paddle collision with speed increase
+            for paddle in paddles:
+                if self.rect.colliderect(paddle.rect):
+                    # Restore position to prevent phasing through
+                    self.rect.x = prev_x
+                    
+                    # Increase speed but cap it
+                    speed_multiplier = 1.05  # Reduced from 1.1
+                    new_speed = abs(self.speed_x) * speed_multiplier
+                    if new_speed > self.max_speed:
+                        new_speed = self.max_speed
+                    
+                    self.speed_x = -new_speed if self.speed_x > 0 else new_speed
+                    
+                    # Adjust angle based on where ball hits paddle
+                    relative_intersect_y = (paddle.rect.centery - self.rect.centery) / (paddle.rect.height / 2)
+                    self.speed_y = -relative_intersect_y * 4  # Reduced from 5
+                    sound_system.play("beep2")
 
-        # Score
-        if self.rect.left <= boundaries.left:
-            paddles[1].score += 1
-            self.reset()
-            return True
-        elif self.rect.right >= boundaries.right:
-            paddles[0].score += 1
-            self.reset()
-            return True
-        return False
+            # Score
+            if self.rect.left <= boundaries.left:
+                paddles[1].score += 1
+                self.reset()
+                return True
+            elif self.rect.right >= boundaries.right:
+                paddles[0].score += 1
+                self.reset()
+                return True
+            return False
+
+
 
     def draw(self, surface):
         pygame.draw.circle(surface, self.color, self.rect.center, self.radius)
@@ -1213,31 +1330,38 @@ class GameEngine:
     def update_player_select(self):
         mouse_pos = pygame.mouse.get_pos()
         mouse_click = pygame.mouse.get_pressed()[0]
-        
-        # Draw input box for player name
-        name_rect = pygame.Rect(Config.WIDTH//2 - 150, Config.HEIGHT//2 - 50, 300, 50)
-        
-        # Check if clicking on the input box
-        if mouse_click and name_rect.collidepoint(mouse_pos):
-            # Simple text input
-            self.get_player_name()
-        
-        # Start button
-        start_button = RetroButton(Config.WIDTH//2 - 100, Config.HEIGHT//2 + 50, 200, 50, 
-                                  "START GAME", "GREEN", "YELLOW")
-        start_button.check_hover(mouse_pos)
-        
-        if start_button.is_clicked(mouse_pos, mouse_click) and self.player_name:
-            self.current_state = Config.GAME_STATES["MAIN_MENU"]
-            # Load player data
-            self.save_system.get_player_data(self.player_name)
 
-    def get_player_name(self):
-        # Simple text input using pygame
+        # Buttons: Select User, New User
+        select_button = RetroButton(Config.WIDTH//2 - 190, Config.HEIGHT//2 - 40, 180, 56, "SELECT USER", "CYAN", "YELLOW")
+        new_button = RetroButton(Config.WIDTH//2 + 10, Config.HEIGHT//2 - 40, 180, 56, "NEW USER", "GREEN", "YELLOW")
+        select_button.check_hover(mouse_pos)
+        new_button.check_hover(mouse_pos)
+
+        if select_button.is_clicked(mouse_pos, mouse_click):
+            chosen = self.select_user_menu()
+            if chosen:
+                self.player_name = chosen
+                self.save_system.get_player_data(self.player_name)
+                self.current_state = Config.GAME_STATES["MAIN_MENU"]
+
+        if new_button.is_clicked(mouse_pos, mouse_click):
+            new_name = self.get_new_user_name()
+            if new_name:
+                created = self.save_system.create_user(new_name)
+                if created:
+                    self.player_name = new_name
+                    self.save_system.get_player_data(self.player_name)
+                    self.current_state = Config.GAME_STATES["MAIN_MENU"]
+                else:
+                    # creation failed or user exists; simple no-op for now
+                    pass
+
+    def get_new_user_name(self):
+        """Text input loop to collect a new username. Returns the string or None if cancelled or duplicate."""
         name = ""
         input_active = True
         font = pygame.font.Font(None, 36)
-        
+
         while input_active:
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
@@ -1245,56 +1369,76 @@ class GameEngine:
                     sys.exit()
                 elif event.type == pygame.KEYDOWN:
                     if event.key == pygame.K_RETURN:
-                        input_active = False
+                        if name.strip():
+                            input_active = False
                     elif event.key == pygame.K_BACKSPACE:
                         name = name[:-1]
+                    elif event.key == pygame.K_ESCAPE:
+                        return None
                     else:
-                        # Only allow alphanumeric and some special chars
                         if event.unicode.isalnum() or event.unicode in " -_":
                             name += event.unicode
-            
-            # Draw
+
+            # Draw input UI
             self.draw_80s_background()
-            self.draw_text("ENTER YOUR NAME", 48, Config.WIDTH//2, Config.HEIGHT//2 - 100, "CYAN")
-            
-            # Draw input box
-            input_rect = pygame.Rect(Config.WIDTH//2 - 150, Config.HEIGHT//2 - 25, 300, 50)
+            self.draw_text("CREATE NEW USER", 48, Config.WIDTH//2, Config.HEIGHT//2 - 120, "CYAN")
+            self.draw_text("Enter a unique username:", 28, Config.WIDTH//2, Config.HEIGHT//2 - 60, "WHITE")
+            input_rect = pygame.Rect(Config.WIDTH//2 - 300, Config.HEIGHT//2 - 20, 600, 56)
             pygame.draw.rect(self.screen, Config.COLORS["BLUE"], input_rect)
             pygame.draw.rect(self.screen, Config.COLORS["WHITE"], input_rect, 2)
-            
-            # Draw text
             name_surface = font.render(name, True, Config.COLORS["WHITE"])
             self.screen.blit(name_surface, (input_rect.x + 10, input_rect.y + 10))
-            
-            self.draw_text("Press ENTER when done", 24, Config.WIDTH//2, Config.HEIGHT//2 + 50, "YELLOW")
-            
+            self.draw_text("Press ENTER to create (ESC to cancel)", 20, Config.WIDTH//2, Config.HEIGHT//2 + 60, "YELLOW")
             pygame.display.flip()
             self.clock.tick(Config.FPS)
-        
-        self.player_name = name
 
-    def draw_player_select(self):
-        self.draw_text("RETRO ARCADE MEGA COLLECTION", 64, Config.WIDTH//2, 150, "CYAN")
-        self.draw_text("1980s EDITION", 48, Config.WIDTH//2, 200, "YELLOW")
-        
-        # Draw input box for player name
-        name_rect = pygame.Rect(Config.WIDTH//2 - 150, Config.HEIGHT//2 - 50, 300, 50)
-        pygame.draw.rect(self.screen, Config.COLORS["BLUE"], name_rect)
-        pygame.draw.rect(self.screen, Config.COLORS["WHITE"], name_rect, 2)
-        
-        # Draw player name or prompt
-        if self.player_name:
-            self.draw_text(self.player_name, 36, Config.WIDTH//2, Config.HEIGHT//2 - 25, "WHITE")
-        else:
-            self.draw_text("Click to enter name", 24, Config.WIDTH//2, Config.HEIGHT//2 - 25, "GRAY")
-        
-        self.draw_text("PLAYER NAME:", 36, Config.WIDTH//2, Config.HEIGHT//2 - 100, "WHITE")
-        
-        # Draw start button
-        start_button = RetroButton(Config.WIDTH//2 - 100, Config.HEIGHT//2 + 50, 200, 50, 
-                                  "START GAME", "GREEN", "YELLOW")
-        start_button.draw(self.screen)
+        # If username duplicates an existing file, return None so caller can handle
+        if self.save_system.user_exists(name):
+            return None
+        return name
 
+    def select_user_menu(self):
+        """Display a simple selectable list of saved users. Returns selected username or None."""
+        users = self.save_system.list_users()
+        if not users:
+            return None
+
+        buttons = []
+        start_y = 160
+        for i, u in enumerate(users):
+            btn = RetroButton(Config.WIDTH//2 - 220, start_y + i * 52, 440, 44, u, "GREEN", "YELLOW")
+            buttons.append((u, btn))
+
+        back_button = RetroButton(Config.WIDTH//2 - 100, Config.HEIGHT - 90, 200, 48, "BACK", "BLUE", "CYAN")
+
+        selecting = True
+        while selecting:
+            mouse_pos = pygame.mouse.get_pos()
+            mouse_click = pygame.mouse.get_pressed()[0]
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    pygame.quit()
+                    sys.exit()
+                if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
+                    return None
+
+            self.draw_80s_background()
+            self.draw_text("SELECT USER", 48, Config.WIDTH//2, 80, "CYAN")
+
+            for uname, btn in buttons:
+                btn.check_hover(mouse_pos)
+                btn.draw(self.screen)
+                if btn.is_clicked(mouse_pos, mouse_click):
+                    return uname
+
+            back_button.check_hover(mouse_pos)
+            back_button.draw(self.screen)
+            if back_button.is_clicked(mouse_pos, mouse_click):
+                return None
+
+            pygame.display.flip()
+            self.clock.tick(Config.FPS)
+        return None
     # Menu methods
     def update_menu(self):
         mouse_pos = pygame.mouse.get_pos()
@@ -1402,28 +1546,28 @@ class GameEngine:
     
     def draw_high_scores(self):
         self.draw_text("HIGH SCORES", 64, Config.WIDTH//2, 80, "YELLOW")
-        
+    
         game_list = ["PONG", "SNAKE", "BREAKOUT", "SPACE_INVADERS", "TETRIS", "ASTEROIDS", "PLATFORMER", "POKEMON"]
-        x_positions = [100, 300, 500, 700]
-        
+        x_positions = [120, 320, 520, 720]
+
+        # Use SaveSystem aggregation
+        all_scores = self.save_system.get_all_high_scores()
+
         for col, game in enumerate(game_list[:4]):
             self.draw_text(game, 24, x_positions[col], 150, "CYAN")
-            scores = self.save_system.data["high_scores"].get(game, [])
-            
-            for i, score in enumerate(scores[:5]):
+            scores = all_scores.get(game, [])
+            for i, score in enumerate(scores[:6]):
                 score_text = f"{i+1}. {score['name']}: {score['score']}"
-                self.draw_text(score_text, 20, x_positions[col], 180 + i * 30, "WHITE")
-        
+                self.draw_text(score_text, 20, x_positions[col], 180 + i * 28, "WHITE")
+
         for col, game in enumerate(game_list[4:]):
             self.draw_text(game, 24, x_positions[col], 350, "CYAN")
-            scores = self.save_system.data["high_scores"].get(game, [])
-            
-            for i, score in enumerate(scores[:5]):
+            scores = all_scores.get(game, [])
+            for i, score in enumerate(scores[:6]):
                 score_text = f"{i+1}. {score['name']}: {score['score']}"
-                self.draw_text(score_text, 20, x_positions[col], 380 + i * 30, "WHITE")
-        
-        # Draw back button
-        back_button = RetroButton(Config.WIDTH//2 - 100, Config.HEIGHT - 50, 200, 40, "BACK", "BLUE", "CYAN")
+                self.draw_text(score_text, 20, x_positions[col], 380 + i * 28, "WHITE")
+
+        back_button = RetroButton(Config.WIDTH//2 - 100, Config.HEIGHT - 70, 200, 48, "BACK", "BLUE", "CYAN")
         back_button.draw(self.screen)
 
     # Game Over Screen
@@ -1574,7 +1718,7 @@ class GameEngine:
             "invaders": invaders,
             "player_bullets": [],
             "invader_bullets": [],
-            "invader_direction": 1,
+ "invader_direction": 1,
             "invader_speed": 1,
             "last_invader_shot": pygame.time.get_ticks(),
             "invader_shot_delay": 1000
@@ -1652,6 +1796,8 @@ class GameEngine:
         }
         self.score = 0
 
+
+
     # Game update methods
     def update_pong(self):
         keys = pygame.key.get_pressed()
@@ -1680,11 +1826,18 @@ class GameEngine:
             sound_system.play("beep3")
 
         # Update score
-        self.score = max(paddle1.score, paddle2.score)
+        self.score = paddle1.score
 
-        # Check win condition
-        if paddle1.score >= 10 or paddle2.score >= 10:
-            self.current_state = Config.GAME_STATES["GAME_OVER"]
+        # Check win condition (reduced from 10 to 5 points)
+        if paddle1.score >= 5 or paddle2.score >= 5:
+            # Save score before game over
+            if self.player_name:
+                self.save_system.add_high_score("PONG", self.player_name, self.score)
+            self.current_state = Config.GAME_STATES["GAME_OVER"]    
+
+
+
+
 
     def draw_pong(self):
         boundaries = self.pong_objects["boundaries"]
@@ -2202,11 +2355,20 @@ class GameEngine:
             
             # Draw battle instructions
             self.draw_text("Use 1-2 to select moves, 3 to catch, ENTER to confirm", 20, Config.WIDTH//2, Config.HEIGHT - 50, "WHITE")
+    
+    def draw_player_select(self):
+        # Title
+        self.draw_text("RETRO ARCADE MEGA COLLECTION", 64, Config.WIDTH//2, 140, "CYAN")
+        self.draw_text("1980s EDITION", 48, Config.WIDTH//2, 190, "YELLOW")
 
-# Main function
-def main():
-    game = GameEngine()
-    game.run()
+        # Draw select/new user buttons (visual only; update_player_select handles hover/click logic)
+        select_button = RetroButton(Config.WIDTH//2 - 190, Config.HEIGHT//2 - 40, 180, 56, "SELECT USER", "CYAN", "YELLOW")
+        new_button = RetroButton(Config.WIDTH//2 + 10, Config.HEIGHT//2 - 40, 180, 56, "NEW USER", "GREEN", "YELLOW")
+        select_button.draw(self.screen)
+        new_button.draw(self.screen)
 
-if __name__ == "__main__":
-    main()
+        # Show currently selected player (if any)
+        if self.player_name:
+            self.draw_text(f"Current: {self.player_name}", 28, Config.WIDTH//2, Config.HEIGHT//2 + 80, "WHITE")
+        else:
+            self.draw_text("No user selected", 28, Config.WIDTH//2, Config.HEIGHT//2 + 80, "GRAY")
